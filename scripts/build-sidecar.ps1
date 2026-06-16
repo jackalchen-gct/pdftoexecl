@@ -36,13 +36,8 @@ if (-not (Test-Path $VenvPython)) {
     throw "Missing virtual environment at $VenvPython. Run scripts/setup-dev.ps1 first."
 }
 
-$pyinstallerVersion = & $VenvPython -m PyInstaller --version 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Installing PyInstaller ..."
-    Invoke-Python -Runner $VenvPython -Arguments @("-m", "pip", "install", "pyinstaller")
-} else {
-    Write-Host "PyInstaller detected: $pyinstallerVersion"
-}
+Write-Host "Syncing Python dependencies ..."
+Invoke-Python -Runner $VenvPython -Arguments @("-m", "pip", "install", "-r", (Join-Path $ProjectRoot "requirements.txt"))
 
 if ($ForceRebuild -and (Test-Path $BuildRoot)) {
     Remove-Item -Recurse -Force $BuildRoot

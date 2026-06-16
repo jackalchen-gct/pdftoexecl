@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::Manager;
@@ -9,6 +9,33 @@ struct ConvertResult {
     output: String,
     status: String,
     message: String,
+    table_count: usize,
+    tables: Vec<ExtractedTable>,
+    pages: Vec<ExtractedPage>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct ExtractedTable {
+    page: usize,
+    index: usize,
+    title: String,
+    rows: Vec<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct ExtractedPage {
+    page: usize,
+    text: String,
+    thumbnail: String,
+}
+
+#[derive(Deserialize)]
+struct ConverterPayload {
+    input: String,
+    output: String,
+    table_count: usize,
+    tables: Vec<ExtractedTable>,
+    pages: Vec<ExtractedPage>,
 }
 
 fn python_executable() -> String {
@@ -112,11 +139,20 @@ fn resolve_backend(app: &tauri::AppHandle) -> Result<ConverterBackend, String> {
     Err("Bundled sidecar not found".to_string())
 }
 
+fn parse_payload(stdout: &[u8]) -> Result<ConverterPayload, String> {
+    let text = String::from_utf8_lossy(stdout).trim().to_string();
+    if text.is_empty() {
+        return Err("Converter returned no payload".to_string());
+    }
+    serde_json::from_str(&text).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 async fn convert_pdfs(
     app: tauri::AppHandle,
     pdf_paths: Vec<String>,
     output_dir: String,
+    page_selections: std::collections::HashMap<String, Vec<usize>>,
 ) -> Result<Vec<ConvertResult>, String> {
     let backend = resolve_backend(&app)?;
     let output_dir_path = Path::new(&output_dir);
@@ -133,26 +169,41 @@ async fn convert_pdfs(
                 + ".xlsx",
         );
 
+        let mut args = vec![input.clone(), output_path.to_string_lossy().to_string()];
+        if let Some(pages) = page_selections.get(&input) {
+            if !pages.is_empty() {
+                args.push("--pages".to_string());
+                let pages_str = pages
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<String>>()
+                    .join(",");
+                args.push(pages_str);
+            }
+        }
+
         let output = match &backend {
             ConverterBackend::Sidecar(binary) => Command::new(binary)
-                .arg(&input)
-                .arg(&output_path)
+                .args(&args)
                 .output()
                 .map_err(|error| error.to_string())?,
             ConverterBackend::Python(script) => Command::new(python_executable())
                 .arg(script)
-                .arg(&input)
-                .arg(&output_path)
+                .args(&args)
                 .output()
                 .map_err(|error| error.to_string())?,
         };
 
         if output.status.success() {
+            let payload = parse_payload(&output.stdout)?;
             results.push(ConvertResult {
-                input,
-                output: output_path.to_string_lossy().to_string(),
+                input: payload.input,
+                output: payload.output,
                 status: "success".to_string(),
                 message: "轉換成功".to_string(),
+                table_count: payload.table_count,
+                tables: payload.tables,
+                pages: payload.pages,
             });
         } else {
             results.push(ConvertResult {
@@ -160,6 +211,59 @@ async fn convert_pdfs(
                 output: output_path.to_string_lossy().to_string(),
                 status: "failed".to_string(),
                 message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+                table_count: 0,
+                tables: Vec::new(),
+                pages: Vec::new(),
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+#[tauri::command]
+async fn get_pdf_previews(
+    app: tauri::AppHandle,
+    pdf_paths: Vec<String>,
+) -> Result<Vec<ConvertResult>, String> {
+    let backend = resolve_backend(&app)?;
+    let mut results = Vec::new();
+
+    for input in pdf_paths {
+        let output = match &backend {
+            ConverterBackend::Sidecar(binary) => Command::new(binary)
+                .arg(&input)
+                .arg("--thumbnails-only")
+                .output()
+                .map_err(|error| error.to_string())?,
+            ConverterBackend::Python(script) => Command::new(python_executable())
+                .arg(script)
+                .arg(&input)
+                .arg("--thumbnails-only")
+                .output()
+                .map_err(|error| error.to_string())?,
+        };
+
+        if output.status.success() {
+            let payload = parse_payload(&output.stdout)?;
+            results.push(ConvertResult {
+                input: payload.input,
+                output: payload.output,
+                status: "success".to_string(),
+                message: "載入成功".to_string(),
+                table_count: payload.table_count,
+                tables: payload.tables,
+                pages: payload.pages,
+            });
+        } else {
+            results.push(ConvertResult {
+                input,
+                output: "".to_string(),
+                status: "failed".to_string(),
+                message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+                table_count: 0,
+                tables: Vec::new(),
+                pages: Vec::new(),
             });
         }
     }
@@ -170,7 +274,7 @@ async fn convert_pdfs(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![convert_pdfs])
+        .invoke_handler(tauri::generate_handler![convert_pdfs, get_pdf_previews])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

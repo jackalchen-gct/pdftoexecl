@@ -58,6 +58,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-sidecar.ps1
 ```powershell
 npm install
 npm run build
+npm run dev:tauri
 npm run tauri dev
 ```
 
