@@ -90,10 +90,14 @@ export default function App() {
       });
       setPdfPreviews(previews);
 
-      // Auto-select all pages of loaded PDFs by default
+      // Default unchecked for multi-page PDFs, auto-select page 1 for single-page PDFs
       const initialSelections: Record<string, number[]> = {};
       previews.forEach((p) => {
-        initialSelections[p.input] = p.pages.map((page) => page.page);
+        if (p.pages.length === 1) {
+          initialSelections[p.input] = [1];
+        } else {
+          initialSelections[p.input] = [];
+        }
       });
       setSelectedPages(initialSelections);
     } catch (e) {
@@ -275,51 +279,79 @@ export default function App() {
                     </div>
                   </div>
                 ) : preview.pages.length > 1 ? (
-                  <div className="page-grid">
-                    {preview.pages.map((page) => {
-                      const isSelected = selectedPages[preview.input]?.includes(page.page) ?? false;
-                      return (
-                        <div
-                          key={`${preview.input}-page-${page.page}`}
-                          className="page-card"
-                          style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                            <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "0.92rem", color: "#1f1a16" }}>
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => togglePageSelection(preview.input, page.page)}
-                                style={{ width: "16px", height: "16px", cursor: "pointer" }}
-                              />
-                              第 {page.page} 頁
-                            </label>
-                            <button
-                              className="zoom-btn"
-                              style={{ padding: "4px 10px", fontSize: "0.8rem", height: "auto", borderRadius: "8px", fontWeight: "bold" }}
-                              onClick={() => setPreview({ title: fileName(preview.input), page })}
-                            >
-                              放大
-                            </button>
-                          </div>
-
+                  <div>
+                    <div className="page-control-row" style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
+                      <button
+                        type="button"
+                        style={{ padding: "6px 14px", fontSize: "0.85rem", height: "auto", borderRadius: "10px" }}
+                        onClick={() => {
+                          setSelectedPages((prev) => ({
+                            ...prev,
+                            [preview.input]: preview.pages.map((p) => p.page),
+                          }));
+                        }}
+                      >
+                        全選 ({preview.pages.length} 頁)
+                      </button>
+                      <button
+                        type="button"
+                        style={{ padding: "6px 14px", fontSize: "0.85rem", height: "auto", borderRadius: "10px" }}
+                        onClick={() => {
+                          setSelectedPages((prev) => ({
+                            ...prev,
+                            [preview.input]: [],
+                          }));
+                        }}
+                      >
+                        全取消勾選
+                      </button>
+                    </div>
+                    <div className="page-grid">
+                      {preview.pages.map((page) => {
+                        const isSelected = selectedPages[preview.input]?.includes(page.page) ?? false;
+                        return (
                           <div
-                            className="page-thumb"
-                            style={{ cursor: "pointer", width: "100%" }}
-                            onClick={() => togglePageSelection(preview.input, page.page)}
+                            key={`${preview.input}-page-${page.page}`}
+                            className="page-card"
+                            style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}
                           >
-                            {page.thumbnail ? (
-                              <img src={page.thumbnail} alt={`Page ${page.page} preview`} style={{ opacity: isSelected ? 1 : 0.4, transition: "opacity 140ms ease" }} />
-                            ) : (
-                              <div className="page-thumb-fallback">
-                                <strong>Page {page.page}</strong>
-                                <span>無縮圖資料</span>
-                              </div>
-                            )}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                              <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "0.92rem", color: "#1f1a16" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => togglePageSelection(preview.input, page.page)}
+                                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                                />
+                                第 {page.page} 頁
+                              </label>
+                              <button
+                                className="zoom-btn"
+                                style={{ padding: "4px 10px", fontSize: "0.8rem", height: "auto", borderRadius: "8px", fontWeight: "bold" }}
+                                onClick={() => setPreview({ title: fileName(preview.input), page })}
+                              >
+                                放大
+                              </button>
+                            </div>
+
+                            <div
+                              className="page-thumb"
+                              style={{ cursor: "pointer", width: "100%" }}
+                              onClick={() => togglePageSelection(preview.input, page.page)}
+                            >
+                              {page.thumbnail ? (
+                                <img src={page.thumbnail} alt={`Page ${page.page} preview`} style={{ opacity: isSelected ? 1 : 0.4, transition: "opacity 140ms ease" }} />
+                              ) : (
+                                <div className="page-thumb-fallback">
+                                  <strong>Page {page.page}</strong>
+                                  <span>無縮圖資料</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : (
                   <p className="muted">正在載入頁面縮圖...</p>
