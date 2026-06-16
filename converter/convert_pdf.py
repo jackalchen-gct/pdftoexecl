@@ -77,6 +77,80 @@ def table_has_quote_data(rows: list[list[str]]) -> bool:
     return non_empty_cells >= 4 and any(marker in joined for marker in quote_markers)
 
 
+def find_header_row_index(rows: list[list[str]]) -> int:
+    # Rule 1: Find first row starting with a sequence digit "1", "01", or "1."
+    # and return the index of the row before it.
+    for idx in range(1, len(rows)):
+        first_cell = rows[idx][0].strip()
+        if first_cell in ("1", "01", "1."):
+            prev_cell = rows[idx - 1][0].strip()
+            if not prev_cell.isdigit():
+                return idx - 1
+
+    # Rule 2: Search for typical header keywords.
+    header_keywords = {"no.", "no", "item", "product", "part number", "description", "專案", "內容", "單價"}
+    for idx, row in enumerate(rows):
+        for cell in row:
+            val = cell.lower().strip()
+            if any(kw in val for kw in header_keywords):
+                return idx
+    return 0
+
+
+def is_footer_row(row: list[str]) -> bool:
+    if not row:
+        return True
+    non_empty = [c.strip() for c in row if c.strip()]
+    if not non_empty:
+        return True
+    if len(non_empty) == 1:
+        val = non_empty[0].lower()
+        footer_kws = ["備註", "remark", "note", "付款", "交易", "保固", "有效期限", "sign", "signature", "址", "tel", "fax"]
+        if any(kw in val for kw in footer_kws) or len(val) > 40:
+            return True
+    return False
+
+
+def clean_quote_table(rows: list[list[str]]) -> list[list[str]]:
+    if not rows:
+        return []
+    header_idx = find_header_row_index(rows)
+    table_rows = rows[header_idx:]
+    if not table_rows:
+        return []
+
+    cleaned_rows = [table_rows[0]]  # Start with the header row
+    for row in table_rows[1:]:
+        first_cell = row[0].strip()
+        row_joined = " ".join(row).lower()
+
+        # Check if row looks like a total row
+        if "ttl" in first_cell.lower() or "total" in first_cell.lower() or "ttl" in row_joined or "total" in row_joined:
+            joined_all = " ".join(c.strip() for c in row if c.strip())
+            ttl_match = re.search(r"(?i)(ttl|total|grand\s*total)\s*(\([^)]+\))?\s*([\d,.]+)", joined_all)
+            if ttl_match:
+                new_row = [""] * len(row)
+                label = ttl_match.group(1)
+                if ttl_match.group(2):
+                    label += " " + ttl_match.group(2)
+                val = ttl_match.group(3)
+                new_row[-1] = val
+                label_idx = -2 if len(row) < 6 else -3
+                new_row[label_idx] = label
+                cleaned_rows.append(new_row)
+            else:
+                cleaned_rows.append(row)
+            break  # Discard everything after total
+
+        if is_footer_row(row):
+            break  # Discard this footer row and everything after it
+
+        cleaned_rows.append(row)
+
+    return cleaned_rows
+
+
+
 def render_page_thumbnail(doc: object | None, page_index: int) -> str:
     if fitz is None or doc is None:
         return ""
@@ -166,7 +240,9 @@ def extract_document(pdf_path: Path, target_pages: set[int] | None = None) -> tu
             for table in page.extract_tables() or []:
                 normalized = normalize_table(table)
                 if normalized and table_has_quote_data(normalized):
-                    page_tables.append(normalized)
+                    cleaned = clean_quote_table(normalized)
+                    if cleaned:
+                        page_tables.append(cleaned)
             
             # Fallback if no tables found and it looks like an AMD quote
             if not page_tables and ("AMD" in text or "Advanced Micro Devices" in text):
