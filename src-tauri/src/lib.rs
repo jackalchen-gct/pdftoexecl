@@ -171,15 +171,13 @@ async fn convert_pdfs(
 
         let mut args = vec![input.clone(), output_path.to_string_lossy().to_string()];
         if let Some(pages) = page_selections.get(&input) {
-            if !pages.is_empty() {
-                args.push("--pages".to_string());
-                let pages_str = pages
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<String>>()
-                    .join(",");
-                args.push(pages_str);
-            }
+            args.push("--pages".to_string());
+            let pages_str = pages
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<String>>()
+                .join(",");
+            args.push(pages_str);
         }
 
         let output = match &backend {

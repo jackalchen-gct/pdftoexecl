@@ -52,6 +52,7 @@ export default function App() {
   const [loadingPreviews, setLoadingPreviews] = useState(false);
   const [selectedPages, setSelectedPages] = useState<Record<string, number[]>>({});
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
+  const [globalError, setGlobalError] = useState<string | null>(null);
 
   const successCount = useMemo(
     () => results.filter((result) => result.status === "success").length,
@@ -80,6 +81,7 @@ export default function App() {
     setPreview(null);
     setPdfPreviews([]);
     setSelectedPages({});
+    setGlobalError(null);
 
     setLoadingPreviews(true);
     try {
@@ -96,6 +98,7 @@ export default function App() {
       setSelectedPages(initialSelections);
     } catch (e) {
       console.error("Failed to load PDF previews:", e);
+      setGlobalError(`載入 PDF 預覽失敗：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setLoadingPreviews(false);
     }
@@ -123,6 +126,7 @@ export default function App() {
     if (!pdfs.length || !outputDir) return;
     setBusy(true);
     setResults([]);
+    setGlobalError(null);
     try {
       const converted = await invoke<ConvertResult[]>("convert_pdfs", {
         pdfPaths: pdfs,
@@ -131,6 +135,9 @@ export default function App() {
       });
       setResults(converted);
       setPreview(null);
+    } catch (e) {
+      console.error("Conversion failed:", e);
+      setGlobalError(`轉換失敗：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -165,6 +172,36 @@ export default function App() {
           </article>
         </div>
       </section>
+
+      {globalError && (
+        <div style={{
+          background: "rgba(171, 54, 37, 0.12)",
+          border: "1px solid rgba(171, 54, 37, 0.28)",
+          borderRadius: "18px",
+          padding: "14px 18px",
+          color: "#7f2717",
+          fontWeight: 700,
+          marginBottom: "16px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          fontSize: "0.95rem"
+        }}>
+          <span>{globalError}</span>
+          <button 
+            onClick={() => setGlobalError(null)}
+            style={{
+              padding: "4px 12px",
+              fontSize: "0.82rem",
+              background: "rgba(255, 255, 255, 0.6)",
+              border: "1px solid rgba(171, 54, 37, 0.18)",
+              height: "auto"
+            }}
+          >
+            關閉
+          </button>
+        </div>
+      )}
 
       <section className="panel command-panel">
         <div className="actions">

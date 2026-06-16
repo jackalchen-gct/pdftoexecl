@@ -85,8 +85,8 @@ def render_page_thumbnail(doc: object | None, page_index: int) -> str:
     target_width = 1200.0
     scale = min(3.0, target_width / max(float(page.rect.width), 1.0))
     pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-    encoded = base64.b64encode(pix.tobytes("png")).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
+    encoded = base64.b64encode(pix.tobytes("jpg")).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
 
 
 def parse_amd_text_table(text: str) -> list[list[str]] | None:
@@ -110,15 +110,22 @@ def parse_amd_text_table(text: str) -> list[list[str]] | None:
         if not line or line.startswith("___") or "Eligible Incentives" in line:
             break
             
-        parts = line.split()
-        if len(parts) >= 6:
-            if "/" in parts[1] and "/" in parts[2]:
-                product = parts[0]
-                start_date = parts[1]
-                end_date = parts[2]
-                qty = parts[3]
-                price = parts[4]
-                term = " ".join(parts[5:])
+        # Match dates in the line to robustly split the columns even with spaces in the product name
+        date_matches = list(re.finditer(r"\b\d{2}/\d{2}/\d{4}\b", line))
+        if len(date_matches) >= 2:
+            start_date = date_matches[0].group(0)
+            end_date = date_matches[1].group(0)
+            
+            # Everything before the first date is the product name
+            product = line[:date_matches[0].start()].strip()
+            
+            # Everything after the second date contains Qty and Pricing Term
+            rest = line[date_matches[1].end():].strip()
+            rest_parts = rest.split()
+            if len(rest_parts) >= 2:
+                qty = rest_parts[0]
+                price = rest_parts[1]
+                term = " ".join(rest_parts[2:])
                 
                 # Check if next line contains the wrapped decimal digit (e.g. '$600.0' + '0')
                 if idx + 1 < len(lines):
@@ -127,7 +134,7 @@ def parse_amd_text_table(text: str) -> list[list[str]] | None:
                         price = price + next_line
                         idx += 1
                         
-                rows.append([product, start_date, end_date, qty, f"{price} {term}"])
+                rows.append([product, start_date, end_date, qty, f"{price} {term}".strip()])
         idx += 1
         
     if len(rows) > 1:
