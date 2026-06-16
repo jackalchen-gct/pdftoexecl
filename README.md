@@ -32,6 +32,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-dev.ps1
 
 This script installs missing prerequisites with `winget`, creates `.venv`, installs Python packages, and runs `npm install`.
 
+The release build also packages the Python converter as a sidecar executable. You do not need Python installed on the end user's machine if the bundled sidecar is present.
+Current sidecar packaging is wired for Windows; other target platforms will need matching sidecar binaries before bundle builds will succeed.
+
 During development, the Rust command uses `python` by default. Set `PDFTOEXECL_PYTHON` if you need to point to a specific Python executable:
 
 ```powershell
@@ -44,10 +47,17 @@ If you use the local virtual environment created by the setup script, the path i
 $env:PDFTOEXECL_PYTHON="$PWD\.venv\Scripts\python.exe"
 ```
 
+To rebuild the bundled sidecar manually:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-sidecar.ps1
+```
+
 ## Useful Commands
 
 ```powershell
 npm install
+npm run build
 npm run tauri dev
 ```
 

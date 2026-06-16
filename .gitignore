@@ -1,6 +1,8 @@
 node_modules/
 dist/
 src-tauri/target/
+src-tauri/bin/
+.sidecar-build/
 *.xlsx
 *.pdf
 __pycache__/
@@ -9,3 +11,4 @@ __pycache__/
 .env.*
 .DS_Store
 *.log
+*.spec
