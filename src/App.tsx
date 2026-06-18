@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type ExtractedTable = {
   page: number;
@@ -23,6 +24,7 @@ type ConvertResult = {
   table_count: number;
   tables: ExtractedTable[];
   pages: ExtractedPage[];
+  logs: string[];
 };
 
 function fileName(path: string) {
@@ -69,13 +71,10 @@ export default function App() {
     [pdfPreviews],
   );
 
-  async function choosePdfs() {
-    const selected = await open({
-      multiple: true,
-      filters: [{ name: "PDF", extensions: ["pdf"] }],
-    });
-    if (!selected) return;
-    const paths = Array.isArray(selected) ? selected : [selected];
+  const [isDragging, setIsDragging] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  const loadPdfPaths = useCallback(async (paths: string[]) => {
     setPdfs(paths);
     setResults([]);
     setPreview(null);
@@ -106,7 +105,92 @@ export default function App() {
     } finally {
       setLoadingPreviews(false);
     }
+  }, []);
+
+  async function choosePdfs() {
+    const selected = await open({
+      multiple: true,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (!selected) return;
+    const paths = Array.isArray(selected) ? selected : [selected];
+    await loadPdfPaths(paths);
   }
+
+  useEffect(() => {
+    const logMessage = (msg: string) => {
+      setDebugLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 49)]);
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    };
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+      logMessage("DOM Event: window dragenter triggered");
+    };
+    const handleDragLeave = (e: DragEvent) => {
+      logMessage("DOM Event: window dragleave triggered");
+    };
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      logMessage("DOM Event: window drop triggered");
+    };
+
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("dragenter", handleDragEnter);
+    window.addEventListener("dragleave", handleDragLeave);
+    window.addEventListener("drop", handleDrop);
+
+    let active = true;
+    const promises = [
+      listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
+        setIsDragging(false);
+        const paths = event.payload?.paths;
+        logMessage(`Tauri Event: tauri://drag-drop, paths: ${JSON.stringify(paths)}`);
+        if (paths && paths.length > 0) {
+          const pdfPaths = paths.filter((p) => p.toLowerCase().endsWith(".pdf"));
+          if (pdfPaths.length > 0) {
+            loadPdfPaths(pdfPaths);
+          }
+        }
+      }),
+      listen("tauri://drag-enter", (event) => {
+        setIsDragging(true);
+        logMessage(`Tauri Event: tauri://drag-enter, payload: ${JSON.stringify(event.payload)}`);
+      }),
+      listen("tauri://drag-leave", (event) => {
+        setIsDragging(false);
+        logMessage(`Tauri Event: tauri://drag-leave, payload: ${JSON.stringify(event.payload)}`);
+      })
+    ];
+
+    let unlisteners: (() => void)[] = [];
+
+    Promise.all(promises).then((fns) => {
+      if (active) {
+        unlisteners = fns;
+      } else {
+        fns.forEach((fn) => fn());
+      }
+    });
+
+    return () => {
+      active = false;
+      unlisteners.forEach((fn) => fn());
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("dragenter", handleDragEnter);
+      window.removeEventListener("dragleave", handleDragLeave);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, [loadPdfPaths]);
+
 
   const togglePageSelection = (pdfPath: string, pageNum: number) => {
     setSelectedPages((prev) => {
@@ -152,10 +236,14 @@ export default function App() {
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
 
-      <section className="hero" style={{ marginTop: "1rem" }}>
-        <p className="intro" style={{ marginTop: 0 }}>
-          先把表格型 PDF 抽成 Excel，再把抽出的表格與 PDF 頁面直接顯示在畫面上，方便比對與 debug。
-        </p>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+        <h1 style={{ fontSize: "1.8rem", margin: 0, fontWeight: 900, color: "#1d3b2a", maxWidth: "none", whiteSpace: "nowrap" }}>
+          PDF to Excel Converter
+        </h1>
+        <span className="badge neutral" style={{ fontSize: "0.85rem", padding: "4px 10px" }}>v0.1.0</span>
+      </header>
+
+      <section className="hero" style={{ marginTop: "0.5rem" }}>
 
         <div className="stats">
           <article>
@@ -207,19 +295,25 @@ export default function App() {
         </div>
       )}
 
-      <section className="panel command-panel">
-        <div className="actions">
-          <button onClick={choosePdfs}>選擇 PDF</button>
-          <button onClick={chooseOutputDir}>選擇輸出資料夾</button>
-          <button className="primary" onClick={convert} disabled={busy || !pdfs.length || !outputDir}>
-            {busy ? "轉換中..." : "轉成 Excel"}
-          </button>
-        </div>
-
+      <section className="panel command-panel" style={{ paddingBottom: "24px" }}>
         <div className="grid">
-          <div className="card">
-            <h2>輸入 PDF</h2>
-            {pdfs.length ? (
+          {/* 輸入 PDF Card */}
+          <div 
+            className={`card interactive drag-drop-zone ${isDragging ? "drag-over" : ""}`}
+            onClick={choosePdfs}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <h2 style={{ margin: 0 }}>輸入 PDF</h2>
+              {pdfs.length > 0 && <span style={{ fontSize: "0.82rem", color: "#2c724b", fontWeight: "bold" }}>🔄 點擊重選</span>}
+            </div>
+            {isDragging ? (
+              <div className="drag-active-overlay">
+                <div className="drag-active-inner">
+                  <span className="drag-icon">📥</span>
+                  <strong>放開以載入 PDF 檔案</strong>
+                </div>
+              </div>
+            ) : pdfs.length ? (
               <ul className="file-list">
                 {pdfs.map((path) => (
                   <li key={path}>
@@ -229,13 +323,65 @@ export default function App() {
                 ))}
               </ul>
             ) : (
-              <p className="muted">尚未選擇 PDF。</p>
+              <div className="drag-placeholder">
+                <span style={{ fontSize: "1.8rem", marginBottom: "8px" }}>📄</span>
+                <p className="muted" style={{ fontWeight: 600 }}>尚未選擇 PDF。</p>
+                <p className="muted-hint" style={{ fontSize: "0.82rem", marginTop: "4px", opacity: 0.7 }}>
+                  拖曳 PDF 檔案至此，或點擊此區域選擇檔案
+                </p>
+              </div>
             )}
           </div>
-          <div className="card">
-            <h2>輸出位置</h2>
-            <p className={outputDir ? "path" : "muted"}>{outputDir || "尚未選擇輸出資料夾。"}</p>
+
+          {/* 輸出位置 Card */}
+          <div className="card interactive" onClick={chooseOutputDir}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <h2 style={{ margin: 0 }}>輸出位置</h2>
+              {outputDir && <span style={{ fontSize: "0.82rem", color: "#2c724b", fontWeight: "bold" }}>📁 點擊變更</span>}
+            </div>
+            {outputDir ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", justifyContent: "center", minHeight: "110px", padding: "12px", background: "rgba(255, 250, 240, 0.5)", border: "1px solid rgba(47, 42, 31, 0.06)", borderRadius: "18px" }}>
+                <span style={{ fontSize: "1.5rem" }}>📂</span>
+                <code className="path" style={{ fontSize: "0.88rem", color: "#1d3b2a", wordBreak: "break-all" }}>{outputDir}</code>
+              </div>
+            ) : (
+              <div className="drag-placeholder">
+                <span style={{ fontSize: "1.8rem", marginBottom: "8px" }}>📁</span>
+                <p className="muted" style={{ fontWeight: 600 }}>尚未選擇輸出資料夾。</p>
+                <p className="muted-hint" style={{ fontSize: "0.82rem", marginTop: "4px", opacity: 0.7 }}>
+                  點擊此區域選擇 Excel 檔案輸出路徑
+                </p>
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* 轉成 Excel 開始轉換按鈕 */}
+        <div style={{ display: "flex", justifyContent: "center", marginTop: "24px" }}>
+          <button 
+            className="primary" 
+            onClick={(e) => {
+              e.stopPropagation();
+              convert();
+            }} 
+            disabled={busy || !pdfs.length || !outputDir}
+            style={{ 
+              width: "100%", 
+              maxWidth: "480px", 
+              padding: "1rem 2rem", 
+              fontSize: "1.1rem",
+              borderRadius: "999px",
+              boxShadow: !pdfs.length || !outputDir ? "none" : "0 8px 26px rgba(44, 114, 75, 0.22)"
+            }}
+          >
+            {busy ? (
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                <span className="spinner" /> 正在轉換為 Excel 中...
+              </span>
+            ) : (
+              "🚀 開始轉換為 Excel"
+            )}
+          </button>
         </div>
       </section>
 
@@ -244,8 +390,7 @@ export default function App() {
         <section className="panel">
           <div className="section-head">
             <div>
-              <p className="section-kicker">PDF Previews</p>
-              <h2>PDF 頁面預覽</h2>
+              <h2>PDF Previews</h2>
             </div>
             {loadingPreviews && <span className="badge neutral">載入縮圖中...</span>}
           </div>
@@ -365,10 +510,8 @@ export default function App() {
       <section className="panel">
         <div className="section-head">
           <div>
-            <p className="section-kicker">結果預覽</p>
-            <h2>轉換結果</h2>
+            <h2>結果預覽</h2>
           </div>
-          <p className="muted">每個 PDF 會顯示 Excel 路徑與抽出的表格。</p>
         </div>
 
         {results.length ? (
@@ -392,6 +535,35 @@ export default function App() {
                   <div className="output-pill" style={{ marginBottom: "16px" }}>
                     <span>Excel</span>
                     <code>{result.output}</code>
+                  </div>
+                )}
+
+                {result.logs && result.logs.length > 0 && (
+                  <div style={{ marginTop: "12px", marginBottom: "16px" }}>
+                    <details>
+                      <summary style={{ fontSize: "0.85rem", fontWeight: "bold", color: "#2c724b", cursor: "pointer", padding: "4px 8px", background: "rgba(44, 114, 75, 0.05)", borderRadius: "8px", width: "fit-content" }}>
+                        📋 檢視解析日誌 (Parsing Logs)
+                      </summary>
+                      <div style={{
+                        marginTop: "8px",
+                        padding: "10px 14px",
+                        background: "#1e1e1e",
+                        color: "#d4d4d4",
+                        fontFamily: "Consolas, Monaco, monospace",
+                        fontSize: "0.88rem",
+                        borderRadius: "8px",
+                        maxHeight: "180px",
+                        overflowY: "auto",
+                        whiteSpace: "pre-wrap",
+                        border: "1px solid rgba(0, 0, 0, 0.15)"
+                      }}>
+                        {result.logs.map((log, i) => (
+                          <div key={i} style={{ borderBottom: "1px solid #2d2d2d", padding: "4px 0", color: log.includes("fallback") ? "#e5c07b" : log.includes("Ignored") ? "#e06c75" : "#abb2bf" }}>
+                            {log}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
                   </div>
                 )}
 
@@ -450,6 +622,29 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* Debug Logs Section */}
+      <section className="panel" style={{ marginTop: "20px", fontSize: "0.85rem", opacity: 0.8 }}>
+        <details>
+          <summary style={{ padding: "8px 12px", background: "rgba(0, 0, 0, 0.04)", borderRadius: "8px", cursor: "pointer" }}>
+            <strong>🔧 偵錯資訊 (Debug Logs)</strong>
+            <span style={{ fontSize: "0.75rem", color: "#6d6254", marginLeft: "10px" }}>
+              {isDragging ? "正在拖曳中 (Dragging)" : "無拖曳活動"}
+            </span>
+          </summary>
+          <div style={{ padding: "12px", background: "#1e1e1e", color: "#67d87c", fontFamily: "monospace", borderRadius: "8px", marginTop: "10px", maxHeight: "150px", overflowY: "auto" }}>
+            <p style={{ margin: "0 0 8px 0", color: "#aaa" }}>
+              提示：若拖曳檔案時出現禁止符號，請確認命令提示字元 (CMD/PowerShell) 與檔案總管是否皆為一般使用者權限（非系統管理員身分）。
+            </p>
+            {debugLogs.length === 0 ? (
+              <p style={{ margin: 0, color: "#888" }}>尚無事件記錄。請嘗試拖曳檔案進來...</p>
+            ) : (
+              debugLogs.map((log, i) => (
+                <div key={i} style={{ borderBottom: "1px solid #333", padding: "4px 0" }}>{log}</div>
+              ))
+            )}
+          </div>
+        </details>
+      </section>
     </main>
   );
 }

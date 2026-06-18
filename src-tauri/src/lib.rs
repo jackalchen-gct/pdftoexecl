@@ -12,6 +12,7 @@ struct ConvertResult {
     table_count: usize,
     tables: Vec<ExtractedTable>,
     pages: Vec<ExtractedPage>,
+    logs: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -36,6 +37,7 @@ struct ConverterPayload {
     table_count: usize,
     tables: Vec<ExtractedTable>,
     pages: Vec<ExtractedPage>,
+    logs: Option<Vec<String>>,
 }
 
 fn python_executable() -> String {
@@ -202,6 +204,7 @@ async fn convert_pdfs(
                 table_count: payload.table_count,
                 tables: payload.tables,
                 pages: payload.pages,
+                logs: payload.logs.unwrap_or_default(),
             });
         } else {
             results.push(ConvertResult {
@@ -212,6 +215,7 @@ async fn convert_pdfs(
                 table_count: 0,
                 tables: Vec::new(),
                 pages: Vec::new(),
+                logs: Vec::new(),
             });
         }
     }
@@ -252,6 +256,7 @@ async fn get_pdf_previews(
                 table_count: payload.table_count,
                 tables: payload.tables,
                 pages: payload.pages,
+                logs: payload.logs.unwrap_or_default(),
             });
         } else {
             results.push(ConvertResult {
@@ -262,6 +267,7 @@ async fn get_pdf_previews(
                 table_count: 0,
                 tables: Vec::new(),
                 pages: Vec::new(),
+                logs: Vec::new(),
             });
         }
     }

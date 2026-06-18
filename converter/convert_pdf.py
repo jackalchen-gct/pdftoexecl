@@ -20,6 +20,13 @@ except Exception:  # pragma: no cover - optional dependency
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
+LOGS: list[str] = []
+
+
+def log(msg: str) -> None:
+    LOGS.append(msg)
+    print(msg, file=sys.stderr)
+
 
 def clean_cell(value: object) -> str:
     if value is None:
@@ -164,6 +171,7 @@ def render_page_thumbnail(doc: object | None, page_index: int) -> str:
 
 
 def parse_amd_text_table(text: str) -> list[list[str]] | None:
+    log("Running AMD fallback text-based table parser...")
     lines = [line.strip() for line in text.split("\n")]
     
     header_idx = -1
@@ -173,8 +181,10 @@ def parse_amd_text_table(text: str) -> list[list[str]] | None:
             break
             
     if header_idx == -1:
+        log("AMD fallback parser: Required header keywords not found in text.")
         return None
         
+    log(f"AMD fallback parser: Found header keywords at line {header_idx}: '{lines[header_idx]}'")
     headers = ["Product", "Start Date", "End Date", "Qty", "Pricing Term"]
     rows = [headers]
     
@@ -182,6 +192,7 @@ def parse_amd_text_table(text: str) -> list[list[str]] | None:
     while idx < len(lines):
         line = lines[idx]
         if not line or line.startswith("___") or "Eligible Incentives" in line:
+            log(f"AMD fallback parser: Stopping extraction at line {idx} due to stop delimiter: '{line}'")
             break
             
         # Match dates in the line to robustly split the columns even with spaces in the product name
@@ -209,14 +220,18 @@ def parse_amd_text_table(text: str) -> list[list[str]] | None:
                         idx += 1
                         
                 rows.append([product, start_date, end_date, qty, f"{price} {term}".strip()])
+                log(f"AMD fallback parser: Extracted row: {rows[-1]}")
         idx += 1
         
     if len(rows) > 1:
+        log(f"AMD fallback parser: Successfully extracted {len(rows) - 1} data rows.")
         return rows
+    log("AMD fallback parser: No data rows were extracted.")
     return None
 
 
 def extract_document(pdf_path: Path, target_pages: set[int] | None = None) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    log(f"Extracting tables from document: {pdf_path.name}")
     tables: list[dict[str, object]] = []
     pages: list[dict[str, object]] = []
     pdf_doc = fitz.open(pdf_path) if fitz is not None else None
@@ -224,8 +239,10 @@ def extract_document(pdf_path: Path, target_pages: set[int] | None = None) -> tu
     with pdfplumber.open(pdf_path) as pdf:
         for page_index, page in enumerate(pdf.pages, start=1):
             if target_pages is not None and page_index not in target_pages:
+                log(f"Page {page_index}: Skipped (not in target pages).")
                 continue
             text = page.extract_text() or ""
+            log(f"Page {page_index}: Extracted text (length={len(text)}).")
             pages.append(
                 {
                     "page": page_index,
@@ -237,15 +254,24 @@ def extract_document(pdf_path: Path, target_pages: set[int] | None = None) -> tu
             page_tables = []
             
             # Try extraction with normal tables
-            for table in page.extract_tables() or []:
+            raw_tables = page.extract_tables() or []
+            log(f"Page {page_index}: pdfplumber detected {len(raw_tables)} raw tables.")
+            for table_idx, table in enumerate(raw_tables, start=1):
                 normalized = normalize_table(table)
                 if normalized and table_has_quote_data(normalized):
                     cleaned = clean_quote_table(normalized)
-                    if cleaned:
+                    # Check that the table has more than just the header row
+                    if cleaned and len(cleaned) > 1:
                         page_tables.append(cleaned)
+                        log(f"Page {page_index} Table {table_idx}: Accepted grid table with {len(cleaned)} rows (including header).")
+                    else:
+                        log(f"Page {page_index} Table {table_idx}: Ignored grid table with {len(cleaned) if cleaned else 0} rows (no data).")
+                else:
+                    log(f"Page {page_index} Table {table_idx}: Ignored (does not match quote signature or too small).")
             
             # Fallback if no tables found and it looks like an AMD quote
             if not page_tables and ("AMD" in text or "Advanced Micro Devices" in text):
+                log(f"Page {page_index}: No grid tables accepted, but AMD detected. Triggering AMD fallback parser.")
                 amd_table = parse_amd_text_table(text)
                 if amd_table:
                     page_tables.append(amd_table)
@@ -260,6 +286,7 @@ def extract_document(pdf_path: Path, target_pages: set[int] | None = None) -> tu
                         "rows": normalized,
                     }
                 )
+                log(f"Page {page_index}: Registered table {table_idx} with {len(normalized)} rows.")
                 
     if pdf_doc is not None:
         pdf_doc.close()
@@ -332,6 +359,7 @@ def convert(pdf_path: Path, output_path: Path, target_pages: set[int] | None = N
         "table_count": len(tables),
         "tables": tables,
         "pages": pages,
+        "logs": LOGS,
     }
     print(json.dumps(payload, ensure_ascii=False))
 
@@ -370,6 +398,7 @@ def get_thumbnails(pdf_path: Path) -> None:
         "table_count": 0,
         "tables": [],
         "pages": pages,
+        "logs": LOGS,
     }
     print(json.dumps(payload, ensure_ascii=False))
 
