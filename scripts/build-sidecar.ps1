@@ -50,6 +50,13 @@ New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $BuildRoot "work") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $BuildRoot "spec") | Out-Null
 
+Write-Host "Ensuring $sidecarName.exe is terminated to unlock file ..."
+$proc = Get-Process -Name $sidecarName -ErrorAction SilentlyContinue
+if ($proc) {
+    $proc | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+}
+
 Write-Host "Building sidecar $sidecarName ..."
 Invoke-Python -Runner $VenvPython -Arguments @(
     "-m",
