@@ -4,6 +4,7 @@ import base64
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -640,7 +641,7 @@ def write_text_fallback(wb: Workbook, pdf_path: Path, target_pages: set[int] | N
     ws.freeze_panes = "A2"
 
 
-def convert(pdf_path: Path, output_path: Path, target_pages: set[int] | None = None) -> None:
+def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | None = None) -> None:
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
@@ -671,7 +672,7 @@ def convert(pdf_path: Path, output_path: Path, target_pages: set[int] | None = N
             height = page_fitz.rect.height
             
             # Crop Logo icon (from coords: x0=48.20, x1=92.32, top=65.14, bottom=106.14)
-            logo_img_path = output_path.parent / f"temp_{output_path.stem}_logo_{page_index}.png"
+            logo_img_path = Path(tempfile.gettempdir()) / f"temp_{output_path.stem}_logo_{page_index}.png"
             pix_logo = page_fitz.get_pixmap(clip=fitz.Rect(45.0, 60.0, 95.0, 110.0), matrix=fitz.Matrix(3.0, 3.0))
             pix_logo.save(str(logo_img_path))
             temp_images.append(logo_img_path)
@@ -867,7 +868,24 @@ def convert(pdf_path: Path, output_path: Path, target_pages: set[int] | None = N
     print(json.dumps(payload, ensure_ascii=False))
 
 
-def get_thumbnails(pdf_path: Path) -> None:
+def convert(pdf_path: Path, output_path: Path, target_pages: set[int] | None = None) -> None:
+    try:
+        convert_impl(pdf_path, output_path, target_pages)
+    except Exception as error:
+        payload = {
+            "input": str(pdf_path),
+            "output": str(output_path),
+            "status": "error",
+            "message": str(error),
+            "table_count": 0,
+            "tables": [],
+            "pages": [],
+            "logs": LOGS + [f"Critical error: {error}"],
+        }
+        print(json.dumps(payload, ensure_ascii=False))
+
+
+def get_thumbnails_impl(pdf_path: Path) -> None:
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
@@ -904,6 +922,23 @@ def get_thumbnails(pdf_path: Path) -> None:
         "logs": LOGS,
     }
     print(json.dumps(payload, ensure_ascii=False))
+
+
+def get_thumbnails(pdf_path: Path) -> None:
+    try:
+        get_thumbnails_impl(pdf_path)
+    except Exception as error:
+        payload = {
+            "input": str(pdf_path),
+            "output": "",
+            "status": "error",
+            "message": str(error),
+            "table_count": 0,
+            "tables": [],
+            "pages": [],
+            "logs": LOGS + [f"Critical error: {error}"],
+        }
+        print(json.dumps(payload, ensure_ascii=False))
 
 
 def main() -> int:

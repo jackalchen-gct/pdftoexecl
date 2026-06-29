@@ -36,6 +36,8 @@ struct ExtractedPage {
 struct ConverterPayload {
     input: String,
     output: String,
+    status: Option<String>,
+    message: Option<String>,
     table_count: usize,
     tables: Vec<ExtractedTable>,
     pages: Vec<ExtractedPage>,
@@ -198,11 +200,17 @@ async fn convert_pdfs(
 
         if output.status.success() {
             let payload = parse_payload(&output.stdout)?;
+            let status = payload.status.clone().unwrap_or_else(|| "success".to_string());
+            let message = if status == "error" {
+                payload.message.clone().unwrap_or_else(|| "轉換失敗".to_string())
+            } else {
+                "轉換成功".to_string()
+            };
             results.push(ConvertResult {
                 input: payload.input,
                 output: payload.output,
-                status: "success".to_string(),
-                message: "轉換成功".to_string(),
+                status,
+                message,
                 table_count: payload.table_count,
                 tables: payload.tables,
                 pages: payload.pages,
@@ -250,11 +258,17 @@ async fn get_pdf_previews(
 
         if output.status.success() {
             let payload = parse_payload(&output.stdout)?;
+            let status = payload.status.clone().unwrap_or_else(|| "success".to_string());
+            let message = if status == "error" {
+                payload.message.clone().unwrap_or_else(|| "載入失敗".to_string())
+            } else {
+                "載入成功".to_string()
+            };
             results.push(ConvertResult {
                 input: payload.input,
                 output: payload.output,
-                status: "success".to_string(),
-                message: "載入成功".to_string(),
+                status,
+                message,
                 table_count: payload.table_count,
                 tables: payload.tables,
                 pages: payload.pages,

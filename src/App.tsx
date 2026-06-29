@@ -2,6 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import StatsHero from "./components/StatsHero";
+import VersionModal from "./components/VersionModal";
+import PreviewModal from "./components/PreviewModal";
 
 type ExtractedTable = {
   page: number;
@@ -253,27 +256,12 @@ export default function App() {
         </span>
       </header>
 
-      <section className="hero" style={{ marginTop: "0.5rem" }}>
-
-        <div className="stats">
-          <article>
-            <span>選取 PDF</span>
-            <strong>{pdfs.length}</strong>
-          </article>
-          <article>
-            <span>成功轉換</span>
-            <strong>{successCount}</strong>
-          </article>
-          <article>
-            <span>抽出表格</span>
-            <strong>{tableCount}</strong>
-          </article>
-          <article>
-            <span>PDF 頁數</span>
-            <strong>{pageCount}</strong>
-          </article>
-        </div>
-      </section>
+      <StatsHero
+        pdfsCount={pdfs.length}
+        successCount={successCount}
+        tableCount={tableCount}
+        pageCount={pageCount}
+      />
 
       {globalError && (
         <div style={{
@@ -527,7 +515,7 @@ export default function App() {
         {results.length ? (
           <div className="result-stack">
             {results.map((result) => (
-              <article className={`result-card ${result.status}`} key={result.input}>
+              <article className={`result-card ${result.status === "success" ? "success" : "failed"}`} key={result.input}>
                 <header className="result-header">
                   <div>
                     <p className="result-name" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -546,7 +534,7 @@ export default function App() {
                     )}
                   </div>
                   <div className="status-row">
-                    <span className={`badge ${result.status}`}>{result.status === "success" ? "成功" : "失敗"}</span>
+                    <span className={`badge ${result.status === "success" ? "success" : "failed"}`}>{result.status === "success" ? "成功" : "失敗"}</span>
                     <span className="badge neutral">{result.table_count} tables</span>
                   </div>
                 </header>
@@ -627,108 +615,8 @@ export default function App() {
         )}
       </section>
 
-      {preview && (
-        <div className="preview-overlay" role="button" tabIndex={0} onClick={() => setPreview(null)}>
-          <div className="preview-modal" onClick={(event) => event.stopPropagation()} style={{ maxWidth: "960px" }}>
-            <header className="preview-head">
-              <div>
-                <p className="section-kicker">Page Preview</p>
-                <h2>{preview.title} - 第 {preview.page.page} 頁</h2>
-              </div>
-              <button onClick={() => setPreview(null)}>關閉</button>
-            </header>
-
-            <div className="preview-image">
-              {preview.page.thumbnail && <img src={preview.page.thumbnail} alt={`Page ${preview.page.page} full preview`} />}
-            </div>
-          </div>
-        </div>
-      )}
-      {showVersionInfo && (
-        <div className="preview-overlay" role="button" tabIndex={0} onClick={() => setShowVersionInfo(false)}>
-          <div className="preview-modal" onClick={(event) => event.stopPropagation()} style={{ maxWidth: "600px" }}>
-            <header className="preview-head">
-              <div>
-                <p className="section-kicker">Version History</p>
-                <h2>版本更新日誌</h2>
-              </div>
-              <button onClick={() => setShowVersionInfo(false)}>關閉</button>
-            </header>
-
-            <div style={{ padding: "8px 0", maxHeight: "400px", overflowY: "auto" }}>
-              <div style={{ marginBottom: "20px" }}>
-                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#1d3b2a" }}>v0.4.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
-                <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
-                  <li><strong>比赫 PDF 報價單「版型二」儲存格樣式與線框優化</strong>
-                    <ul>
-                      <li>取消客戶資訊區內部實線，改為單一乾淨外框包覆。</li>
-                      <li>支援內容欄與備註欄多行排版自動折行，完美還原 PDF 換行結構。</li>
-                      <li>優化保固列檢測，支援備份搜尋內容欄（Description）以應對專案欄為空的情形。</li>
-                      <li>當原始檔案無專案名稱時自動保持空白，避免產生多餘的 "專案 :" 標籤。</li>
-                    </ul>
-                  </li>
-                  <li><strong>介面與結果預覽優化</strong>
-                    <ul>
-                      <li>結果預覽卡片新增「計算比例徽章」與「保固計算公式」明細展示。</li>
-                    </ul>
-                  </li>
-                </ul>
-              </div>
-
-              <div style={{ marginBottom: "20px" }}>
-                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#6d6254" }}>v0.3.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
-                <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
-                  <li><strong>比赫 PDF 報價單「版型一」圖檔嵌入排版優化 (Option 1)</strong>
-                    <ul>
-                      <li>將 PDF 頂部的公司/客戶資訊與底部的備註條款裁剪為 PNG 圖檔並嵌入 Excel。</li>
-                      <li>完美還原 Logo 與備註排版，同時保持中間表格為可編輯、可計算與黑塗效果。</li>
-                    </ul>
-                  </li>
-                  <li><strong>總計列 (TTL) 匹配精度提升</strong>
-                    <ul>
-                      <li>使用單字邊界 <code>\b(ttl|total)\b</code> 判定總計列，避免備註中的 <code>settlement</code> 單字被誤匹配。</li>
-                    </ul>
-                  </li>
-                </ul>
-              </div>
-
-              <div style={{ marginBottom: "20px" }}>
-                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#6d6254" }}>v0.2.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
-                <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
-                  <li><strong>比赫 PDF 報價單自動偵測與轉換優化</strong>
-                    <ul>
-                      <li>自動合併跨列標題，正確抓取「3年保固 單價(USD)/台」。</li>
-                      <li>調整欄位順序：將 <code>Qty</code> (及其單位) 置於價格欄位之前。</li>
-                      <li>新增保固年期自動辨識，並依比例試算保固金額與重算 TTL 總額：
-                        <ul style={{ margin: "4px 0", paddingLeft: "20px", listStyleType: "circle" }}>
-                          <li>1 ~ 3 年：35%</li>
-                          <li>4 年：45%</li>
-                          <li>5 年：55%</li>
-                          <li>6 年：65%</li>
-                        </ul>
-                      </li>
-                      <li>Excel 報價輸出自動塗黑：將資料列之單價、保固單價、總計與備註欄位套用黑色底色與黑色字型，實現遮罩效果。</li>
-                    </ul>
-                  </li>
-                  <li><strong>介面與體驗優化</strong>
-                    <ul>
-                      <li>點擊版本號可開啟此更新歷史視窗。</li>
-                    </ul>
-                  </li>
-                </ul>
-              </div>
-
-              <div style={{ borderTop: "1px solid rgba(0, 0, 0, 0.08)", paddingTop: "12px" }}>
-                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#6d6254" }}>v0.1.0 <span style={{ fontSize: "0.85rem", color: "#888", fontWeight: "normal" }}> (初始版本)</span></h3>
-                <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6", color: "#666" }}>
-                  <li>支援多格式 PDF 轉 Excel 報價單轉換器。</li>
-                  <li>支援多檔案拖曳載入與單/多頁預覽功能。</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <PreviewModal preview={preview} onClose={() => setPreview(null)} />
+      <VersionModal isOpen={showVersionInfo} onClose={() => setShowVersionInfo(false)} />
       {/* Debug Logs Section */}
       <section className="panel" style={{ marginTop: "20px", fontSize: "0.85rem", opacity: 0.8 }}>
         <details>
