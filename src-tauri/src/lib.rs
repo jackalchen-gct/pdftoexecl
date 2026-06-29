@@ -21,6 +21,8 @@ struct ExtractedTable {
     index: usize,
     title: String,
     rows: Vec<Vec<String>>,
+    ratio: Option<String>,
+    formula: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

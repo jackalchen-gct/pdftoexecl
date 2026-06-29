@@ -8,6 +8,8 @@ type ExtractedTable = {
   index: number;
   title: string;
   rows: string[][];
+  ratio?: string;
+  formula?: string;
 };
 
 type ExtractedPage = {
@@ -55,6 +57,7 @@ export default function App() {
   const [selectedPages, setSelectedPages] = useState<Record<string, number[]>>({});
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [showVersionInfo, setShowVersionInfo] = useState(false);
 
   const successCount = useMemo(
     () => results.filter((result) => result.status === "success").length,
@@ -240,7 +243,14 @@ export default function App() {
         <h1 style={{ fontSize: "1.8rem", margin: 0, fontWeight: 900, color: "#1d3b2a", maxWidth: "none", whiteSpace: "nowrap" }}>
           PDF to Excel Converter
         </h1>
-        <span className="badge neutral" style={{ fontSize: "0.85rem", padding: "4px 10px" }}>v0.1.0</span>
+
+        <span 
+          className="badge neutral" 
+          style={{ fontSize: "0.85rem", padding: "4px 10px", cursor: "pointer", userSelect: "none" }}
+          onClick={() => setShowVersionInfo(true)}
+        >
+          v0.3.0
+        </span>
       </header>
 
       <section className="hero" style={{ marginTop: "0.5rem" }}>
@@ -520,8 +530,20 @@ export default function App() {
               <article className={`result-card ${result.status}`} key={result.input}>
                 <header className="result-header">
                   <div>
-                    <p className="result-name">{fileName(result.input)}</p>
+                    <p className="result-name" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      {fileName(result.input)}
+                      {result.tables.some((t) => t.ratio) && (
+                        <span className="badge success" style={{ fontSize: "0.8rem", padding: "2px 8px", background: "rgba(44, 114, 75, 0.12)", color: "#2c724b", border: "1px solid rgba(44, 114, 75, 0.2)" }}>
+                          比例: {result.tables.find((t) => t.ratio)?.ratio}
+                        </span>
+                      )}
+                    </p>
                     <p className="muted">{previewPath(result.input, 96)}</p>
+                    {result.tables.some((t) => t.formula) && (
+                      <p style={{ margin: "4px 0 0 0", fontSize: "0.85rem", color: "#2c724b", fontWeight: "bold" }}>
+                        🧮 {result.tables.find((t) => t.formula)?.formula}
+                      </p>
+                    )}
                   </div>
                   <div className="status-row">
                     <span className={`badge ${result.status}`}>{result.status === "success" ? "成功" : "失敗"}</span>
@@ -618,6 +640,72 @@ export default function App() {
 
             <div className="preview-image">
               {preview.page.thumbnail && <img src={preview.page.thumbnail} alt={`Page ${preview.page.page} full preview`} />}
+            </div>
+          </div>
+        </div>
+      )}
+      {showVersionInfo && (
+        <div className="preview-overlay" role="button" tabIndex={0} onClick={() => setShowVersionInfo(false)}>
+          <div className="preview-modal" onClick={(event) => event.stopPropagation()} style={{ maxWidth: "600px" }}>
+            <header className="preview-head">
+              <div>
+                <p className="section-kicker">Version History</p>
+                <h2>版本更新日誌</h2>
+              </div>
+              <button onClick={() => setShowVersionInfo(false)}>關閉</button>
+            </header>
+
+            <div style={{ padding: "8px 0", maxHeight: "400px", overflowY: "auto" }}>
+              <div style={{ marginBottom: "20px" }}>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#1d3b2a" }}>v0.3.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
+                <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
+                  <li><strong>比赫 PDF 報價單「版型一」圖檔嵌入排版優化 (Option 1)</strong>
+                    <ul>
+                      <li>將 PDF 頂部的公司/客戶資訊與底部的備註條款裁剪為 PNG 圖檔並嵌入 Excel。</li>
+                      <li>完美還原 Logo 與備註排版，同時保持中間表格為可編輯、可計算與黑塗效果。</li>
+                    </ul>
+                  </li>
+                  <li><strong>總計列 (TTL) 匹配精度提升</strong>
+                    <ul>
+                      <li>使用單字邊界 <code>\b(ttl|total)\b</code> 判定總計列，避免備註中的 <code>settlement</code> 單字被誤匹配。</li>
+                    </ul>
+                  </li>
+                </ul>
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#6d6254" }}>v0.2.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
+                <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
+                  <li><strong>比赫 PDF 報價單自動偵測與轉換優化</strong>
+                    <ul>
+                      <li>自動合併跨列標題，正確抓取「3年保固 單價(USD)/台」。</li>
+                      <li>調整欄位順序：將 <code>Qty</code> (及其單位) 置於價格欄位之前。</li>
+                      <li>新增保固年期自動辨識，並依比例試算保固金額與重算 TTL 總額：
+                        <ul style={{ margin: "4px 0", paddingLeft: "20px", listStyleType: "circle" }}>
+                          <li>1 ~ 3 年：35%</li>
+                          <li>4 年：45%</li>
+                          <li>5 年：55%</li>
+                          <li>6 年：65%</li>
+                        </ul>
+                      </li>
+                      <li>Excel 報價輸出自動塗黑：將資料列之單價、保固單價、總計與備註欄位套用黑色底色與黑色字型，實現遮罩效果。</li>
+                    </ul>
+                  </li>
+                  <li><strong>介面與體驗優化</strong>
+                    <ul>
+                      <li>點擊版本號可開啟此更新歷史視窗。</li>
+                    </ul>
+                  </li>
+                </ul>
+              </div>
+
+              <div style={{ borderTop: "1px solid rgba(0, 0, 0, 0.08)", paddingTop: "12px" }}>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#6d6254" }}>v0.1.0 <span style={{ fontSize: "0.85rem", color: "#888", fontWeight: "normal" }}> (初始版本)</span></h3>
+                <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6", color: "#666" }}>
+                  <li>支援多格式 PDF 轉 Excel 報價單轉換器。</li>
+                  <li>支援多檔案拖曳載入與單/多頁預覽功能。</li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>
