@@ -941,7 +941,96 @@ def get_thumbnails(pdf_path: Path) -> None:
         print(json.dumps(payload, ensure_ascii=False))
 
 
+def run_daemon(port: int) -> None:
+    import socket
+    import io
+    import contextlib
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", port))
+    server.listen(5)
+    log(f"Daemon socket server listening on 127.0.0.1:{port}")
+    
+    # Notify Tauri that daemon is ready
+    print(json.dumps({"status": "ready"}))
+    sys.stdout.flush()
+    
+    while True:
+        try:
+            conn, addr = server.accept()
+            data = b""
+            while b"\n" not in data:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            if not data:
+                conn.close()
+                continue
+                
+            line = data.decode("utf-8").strip()
+            if not line:
+                conn.close()
+                continue
+                
+            cmd = json.loads(line)
+            action = cmd.get("action")
+            
+            if action == "shutdown":
+                conn.sendall(json.dumps({"status": "shutdown"}).encode("utf-8") + b"\n")
+                conn.close()
+                break
+                
+            elif action == "convert":
+                pdf_path = Path(cmd["pdf_path"])
+                output_path = Path(cmd["output_path"])
+                pages = cmd.get("pages")
+                target_pages = set(pages) if pages else None
+                
+                f = io.StringIO()
+                with contextlib.redirect_stdout(f):
+                    convert(pdf_path, output_path, target_pages)
+                response = f.getvalue().strip()
+                if not response:
+                    response = json.dumps({"status": "error", "message": "Empty response from converter"})
+                conn.sendall(response.encode("utf-8") + b"\n")
+                
+            elif action == "get_thumbnails":
+                pdf_path = Path(cmd["pdf_path"])
+                
+                f = io.StringIO()
+                with contextlib.redirect_stdout(f):
+                    get_thumbnails(pdf_path)
+                response = f.getvalue().strip()
+                if not response:
+                    response = json.dumps({"status": "error", "message": "Empty response from thumbnail extractor"})
+                conn.sendall(response.encode("utf-8") + b"\n")
+                
+            else:
+                conn.sendall(json.dumps({"status": "error", "message": f"Unknown action: {action}"}).encode("utf-8") + b"\n")
+                
+            conn.close()
+        except Exception as e:
+            log(f"Daemon connection error: {e}")
+            try:
+                conn.sendall(json.dumps({"status": "error", "message": str(e)}).encode("utf-8") + b"\n")
+                conn.close()
+            except Exception:
+                pass
+
+
 def main() -> int:
+    if "--daemon" in sys.argv:
+        try:
+            idx = sys.argv.index("--daemon")
+            port = int(sys.argv[idx + 1])
+            run_daemon(port)
+            return 0
+        except Exception as e:
+            print(f"Error starting daemon: {e}", file=sys.stderr)
+            return 1
+
     if len(sys.argv) < 3:
         print("Usage: convert_pdf.py <input.pdf> <output.xlsx | --thumbnails-only> [--pages 1,2,3]", file=sys.stderr)
         return 2

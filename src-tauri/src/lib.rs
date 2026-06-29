@@ -2,6 +2,34 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::Manager;
+use std::sync::Mutex;
+use std::io::BufRead;
+
+struct DaemonState {
+    port: u16,
+    child: Mutex<std::process::Child>,
+}
+
+impl Drop for DaemonState {
+    fn drop(&mut self) {
+        use std::io::Write;
+        if let Ok(mut stream) = std::net::TcpStream::connect(format!("127.0.0.1:{}", self.port)) {
+            let cmd = serde_json::json!({ "action": "shutdown" });
+            if let Ok(cmd_str) = serde_json::to_string(&cmd) {
+                let _ = stream.write_all((cmd_str + "\n").as_bytes());
+            }
+        }
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+        }
+    }
+}
+
+fn get_free_port() -> Result<u16, String> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    Ok(port)
+}
 
 #[derive(Serialize)]
 struct ConvertResult {
@@ -155,12 +183,11 @@ fn parse_payload(stdout: &[u8]) -> Result<ConverterPayload, String> {
 
 #[tauri::command]
 async fn convert_pdfs(
-    app: tauri::AppHandle,
+    state: tauri::State<'_, DaemonState>,
     pdf_paths: Vec<String>,
     output_dir: String,
     page_selections: std::collections::HashMap<String, Vec<usize>>,
 ) -> Result<Vec<ConvertResult>, String> {
-    let backend = resolve_backend(&app)?;
     let output_dir_path = Path::new(&output_dir);
     let mut results = Vec::new();
 
@@ -175,58 +202,57 @@ async fn convert_pdfs(
                 + ".xlsx",
         );
 
-        let mut args = vec![input.clone(), output_path.to_string_lossy().to_string()];
-        if let Some(pages) = page_selections.get(&input) {
-            args.push("--pages".to_string());
-            let pages_str = pages
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<String>>()
-                .join(",");
-            args.push(pages_str);
-        }
+        let pages = page_selections.get(&input).cloned();
 
-        let output = match &backend {
-            ConverterBackend::Sidecar(binary) => Command::new(binary)
-                .args(&args)
-                .output()
-                .map_err(|error| error.to_string())?,
-            ConverterBackend::Python(script) => Command::new(python_executable())
-                .arg(script)
-                .args(&args)
-                .output()
-                .map_err(|error| error.to_string())?,
-        };
+        use std::io::{Write, Read};
+        let mut stream = std::net::TcpStream::connect(format!("127.0.0.1:{}", state.port))
+            .map_err(|e| format!("Failed to connect to daemon: {}", e))?;
 
-        if output.status.success() {
-            let payload = parse_payload(&output.stdout)?;
-            let status = payload.status.clone().unwrap_or_else(|| "success".to_string());
-            let message = if status == "error" {
-                payload.message.clone().unwrap_or_else(|| "轉換失敗".to_string())
-            } else {
-                "轉換成功".to_string()
-            };
-            results.push(ConvertResult {
-                input: payload.input,
-                output: payload.output,
-                status,
-                message,
-                table_count: payload.table_count,
-                tables: payload.tables,
-                pages: payload.pages,
-                logs: payload.logs.unwrap_or_default(),
-            });
-        } else {
-            results.push(ConvertResult {
-                input,
-                output: output_path.to_string_lossy().to_string(),
-                status: "failed".to_string(),
-                message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-                table_count: 0,
-                tables: Vec::new(),
-                pages: Vec::new(),
-                logs: Vec::new(),
-            });
+        let cmd = serde_json::json!({
+            "action": "convert",
+            "pdf_path": input.clone(),
+            "output_path": output_path.to_string_lossy().to_string(),
+            "pages": pages,
+        });
+
+        let cmd_str = serde_json::to_string(&cmd).map_err(|e| e.to_string())? + "\n";
+        stream.write_all(cmd_str.as_bytes()).map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
+
+        let mut response = String::new();
+        stream.read_to_string(&mut response).map_err(|e| e.to_string())?;
+
+        match parse_payload(response.as_bytes()) {
+            Ok(payload) => {
+                let status = payload.status.clone().unwrap_or_else(|| "success".to_string());
+                let message = if status == "error" {
+                    payload.message.clone().unwrap_or_else(|| "轉換失敗".to_string())
+                } else {
+                    "轉換成功".to_string()
+                };
+                results.push(ConvertResult {
+                    input: payload.input,
+                    output: payload.output,
+                    status,
+                    message,
+                    table_count: payload.table_count,
+                    tables: payload.tables,
+                    pages: payload.pages,
+                    logs: payload.logs.unwrap_or_default(),
+                });
+            }
+            Err(e) => {
+                results.push(ConvertResult {
+                    input,
+                    output: output_path.to_string_lossy().to_string(),
+                    status: "failed".to_string(),
+                    message: format!("解析 JSON 響應失敗: {}, 原始回應: {}", e, response),
+                    table_count: 0,
+                    tables: Vec::new(),
+                    pages: Vec::new(),
+                    logs: Vec::new(),
+                });
+            }
         }
     }
 
@@ -235,56 +261,59 @@ async fn convert_pdfs(
 
 #[tauri::command]
 async fn get_pdf_previews(
-    app: tauri::AppHandle,
+    state: tauri::State<'_, DaemonState>,
     pdf_paths: Vec<String>,
 ) -> Result<Vec<ConvertResult>, String> {
-    let backend = resolve_backend(&app)?;
     let mut results = Vec::new();
 
     for input in pdf_paths {
-        let output = match &backend {
-            ConverterBackend::Sidecar(binary) => Command::new(binary)
-                .arg(&input)
-                .arg("--thumbnails-only")
-                .output()
-                .map_err(|error| error.to_string())?,
-            ConverterBackend::Python(script) => Command::new(python_executable())
-                .arg(script)
-                .arg(&input)
-                .arg("--thumbnails-only")
-                .output()
-                .map_err(|error| error.to_string())?,
-        };
+        use std::io::{Write, Read};
+        let mut stream = std::net::TcpStream::connect(format!("127.0.0.1:{}", state.port))
+            .map_err(|e| format!("Failed to connect to daemon: {}", e))?;
 
-        if output.status.success() {
-            let payload = parse_payload(&output.stdout)?;
-            let status = payload.status.clone().unwrap_or_else(|| "success".to_string());
-            let message = if status == "error" {
-                payload.message.clone().unwrap_or_else(|| "載入失敗".to_string())
-            } else {
-                "載入成功".to_string()
-            };
-            results.push(ConvertResult {
-                input: payload.input,
-                output: payload.output,
-                status,
-                message,
-                table_count: payload.table_count,
-                tables: payload.tables,
-                pages: payload.pages,
-                logs: payload.logs.unwrap_or_default(),
-            });
-        } else {
-            results.push(ConvertResult {
-                input,
-                output: "".to_string(),
-                status: "failed".to_string(),
-                message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-                table_count: 0,
-                tables: Vec::new(),
-                pages: Vec::new(),
-                logs: Vec::new(),
-            });
+        let cmd = serde_json::json!({
+            "action": "get_thumbnails",
+            "pdf_path": input.clone(),
+        });
+
+        let cmd_str = serde_json::to_string(&cmd).map_err(|e| e.to_string())? + "\n";
+        stream.write_all(cmd_str.as_bytes()).map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
+
+        let mut response = String::new();
+        stream.read_to_string(&mut response).map_err(|e| e.to_string())?;
+
+        match parse_payload(response.as_bytes()) {
+            Ok(payload) => {
+                let status = payload.status.clone().unwrap_or_else(|| "success".to_string());
+                let message = if status == "error" {
+                    payload.message.clone().unwrap_or_else(|| "載入失敗".to_string())
+                } else {
+                    "載入成功".to_string()
+                };
+                results.push(ConvertResult {
+                    input: payload.input,
+                    output: payload.output,
+                    status,
+                    message,
+                    table_count: payload.table_count,
+                    tables: payload.tables,
+                    pages: payload.pages,
+                    logs: payload.logs.unwrap_or_default(),
+                });
+            }
+            Err(e) => {
+                results.push(ConvertResult {
+                    input,
+                    output: "".to_string(),
+                    status: "failed".to_string(),
+                    message: format!("解析 JSON 響應失敗: {}, 原始回應: {}", e, response),
+                    table_count: 0,
+                    tables: Vec::new(),
+                    pages: Vec::new(),
+                    logs: Vec::new(),
+                });
+            }
         }
     }
 
@@ -294,6 +323,44 @@ async fn get_pdf_previews(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let port = get_free_port().map_err(|e| e.to_string())?;
+            let backend = resolve_backend(app.handle())?;
+            let mut child = match &backend {
+                ConverterBackend::Sidecar(binary) => {
+                    Command::new(binary)
+                        .arg("--daemon")
+                        .arg(port.to_string())
+                        .stdout(std::process::Stdio::piped())
+                        .spawn()
+                        .map_err(|e| e.to_string())?
+                }
+                ConverterBackend::Python(script) => {
+                    Command::new(python_executable())
+                        .arg(script)
+                        .arg("--daemon")
+                        .arg(port.to_string())
+                        .stdout(std::process::Stdio::piped())
+                        .spawn()
+                        .map_err(|e| e.to_string())?
+                }
+            };
+            
+            let stdout = child.stdout.as_mut().ok_or("Failed to capture sidecar stdout")?;
+            let mut reader = std::io::BufReader::new(stdout);
+            let mut ready_line = String::new();
+            reader.read_line(&mut ready_line).map_err(|e| e.to_string())?;
+            
+            if !ready_line.contains("ready") {
+                return Err(format!("Daemon startup failed, output: {}", ready_line).into());
+            }
+            
+            app.manage(DaemonState {
+                port,
+                child: Mutex::new(child),
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![convert_pdfs, get_pdf_previews])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
