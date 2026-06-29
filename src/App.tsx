@@ -249,7 +249,7 @@ export default function App() {
           style={{ fontSize: "0.85rem", padding: "4px 10px", cursor: "pointer", userSelect: "none" }}
           onClick={() => setShowVersionInfo(true)}
         >
-          v0.3.0
+          v0.4.0
         </span>
       </header>
 
@@ -657,7 +657,26 @@ export default function App() {
 
             <div style={{ padding: "8px 0", maxHeight: "400px", overflowY: "auto" }}>
               <div style={{ marginBottom: "20px" }}>
-                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#1d3b2a" }}>v0.3.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#1d3b2a" }}>v0.4.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
+                <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
+                  <li><strong>比赫 PDF 報價單「版型二」儲存格樣式與線框優化</strong>
+                    <ul>
+                      <li>取消客戶資訊區內部實線，改為單一乾淨外框包覆。</li>
+                      <li>支援內容欄與備註欄多行排版自動折行，完美還原 PDF 換行結構。</li>
+                      <li>優化保固列檢測，支援備份搜尋內容欄（Description）以應對專案欄為空的情形。</li>
+                      <li>當原始檔案無專案名稱時自動保持空白，避免產生多餘的 "專案 :" 標籤。</li>
+                    </ul>
+                  </li>
+                  <li><strong>介面與結果預覽優化</strong>
+                    <ul>
+                      <li>結果預覽卡片新增「計算比例徽章」與「保固計算公式」明細展示。</li>
+                    </ul>
+                  </li>
+                </ul>
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#6d6254" }}>v0.3.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
                 <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
                   <li><strong>比赫 PDF 報價單「版型一」圖檔嵌入排版優化 (Option 1)</strong>
                     <ul>
