@@ -13,6 +13,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.drawing.image import Image
+from openpyxl.cell.text import InlineFont
+from openpyxl.cell.rich_text import TextBlock, CellRichText
 
 try:
     import fitz  # type: ignore[import-not-found]
@@ -47,6 +49,12 @@ def parse_price(val: str) -> float:
         return float(cleaned)
     except ValueError:
         return 0.0
+
+
+def get_display_length(s: str) -> int:
+    if not s:
+        return 0
+    return sum(2 if ord(c) > 127 else 1 for c in s)
 
 
 def style_range(ws, cell_range: str, border: Border = None, fill: PatternFill = None, font: Font = None, alignment: Alignment = None):
@@ -287,24 +295,14 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                             warranty_years = int(match.group(1))
                             break
                 
-                other_items_sum = 0.0
+                original_ttl = sum(parse_price(r[r_col_total]) for r in reordered_data_rows)
                 ratio = 0.35
-                calculated_warranty_price = 0.0
+                grand_total = original_ttl
                 
                 if warranty_row_idx != -1:
-                    for idx, r in enumerate(reordered_data_rows):
-                        if idx != warranty_row_idx:
-                            other_items_sum += parse_price(r[r_col_total])
-                            
                     ratios = {1: 0.35, 2: 0.35, 3: 0.35, 4: 0.45, 5: 0.55, 6: 0.65}
                     ratio = ratios.get(warranty_years, 0.35)
-                    calculated_warranty_price = other_items_sum * ratio
-                    
-                    warranty_price_str = f"{calculated_warranty_price:,.0f}"
-                    reordered_data_rows[warranty_row_idx][r_col_price] = warranty_price_str
-                    reordered_data_rows[warranty_row_idx][r_col_total] = warranty_price_str
-                
-                grand_total = sum(parse_price(r[r_col_total]) for r in reordered_data_rows)
+                    grand_total = original_ttl + (original_ttl * ratio)
                 
                 warranty_header_name = f"{warranty_years}年保固 單價(USD)/台"
                 clean_headers = ["No.", "專案", "內容", "Qty", "單位", "單價(USD)", warranty_header_name, "總計(USD)"]
@@ -331,11 +329,12 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                     "top_y": top_y,
                     "bottom_y": bottom_y,
                     "customer_info": customer_info,
-                    "remarks_lines": remarks_lines
+                    "remarks_lines": remarks_lines,
+                    "warranty_years": warranty_years if warranty_row_idx != -1 else 3
                 }
                 if warranty_row_idx != -1:
                     table_entry["ratio"] = f"{ratio * 100:.0f}%"
-                    table_entry["formula"] = f"保固計算公式: 其他項目合計 {other_items_sum:,.0f} * {ratio * 100:.0f}% = {calculated_warranty_price:,.0f} (USD)"
+                    table_entry["formula"] = f"TTL 計算公式: 原本的 TTL {original_ttl:,.0f} + 原本的 TTL {original_ttl:,.0f} * {ratio * 100:.0f}% = {grand_total:,.0f} (USD)"
                 tables.append(table_entry)
                 
     return tables
@@ -687,6 +686,9 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                 rem_header = rem_body.pop(0)
                 
             rows = table["rows"]
+            warranty_years = table.get("warranty_years", 3)
+            ratios = {1: 0.35, 2: 0.35, 3: 0.35, 4: 0.45, 5: 0.55, 6: 0.65}
+            ratio = ratios.get(warranty_years, 0.35)
             start_row = row_cursor + 8
             table.setdefault("table_start_row", start_row)
             
@@ -765,17 +767,123 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             ws.merge_cells(f"A{row_cursor+7}:H{row_cursor+7}")
             
             # 3. Write Quotation Table starting at row_cursor + 8 (Row 9)
+            ws.row_dimensions[start_row].height = 28
             max_cols = max((len(row) for row in rows), default=1)
             for row_offset, row in enumerate(rows):
                 r_idx = start_row + row_offset
                 for col_index in range(1, max_cols + 1):
                     cell = ws.cell(r_idx, col_index)
-                    cell.value = row[col_index - 1] if col_index <= len(row) else ""
                     cell.alignment = Alignment(vertical="center", wrap_text=True)
                     cell.border = thin_border
+                    
+                    val_str = str(row[col_index - 1]).strip() if col_index <= len(row) else ""
+                    
                     if row_offset == 0:
-                        cell.font = Font(bold=True)
+                        cell.alignment = Alignment(vertical="center", horizontal="center", wrap_text=True)
                         cell.fill = PatternFill("solid", fgColor="D9E1F2")
+                        if col_index == 7: # Column G
+                            red_font = InlineFont(rFont="Calibri", sz=11, b=True, color="FF0000")
+                            black_font = InlineFont(rFont="Calibri", sz=11, b=True, color="000000")
+                            cell.value = CellRichText(
+                                TextBlock(red_font, f"{warranty_years}年保固\n"),
+                                TextBlock(black_font, "單價(USD)/台")
+                            )
+                        else:
+                            cell.value = val_str
+                            cell.font = Font(bold=True)
+                    elif row_offset == len(rows) - 1: # Total row
+                        if col_index == 8: # Column H
+                            cell.value = f"=SUM(H{start_row+1}:H{start_row+len(rows)-2}) * (1 + {ratio})"
+                            cell.number_format = "#,##0"
+                        else:
+                            cell.value = val_str
+                    else: # Data rows
+                        if col_index == 4: # Qty
+                            try:
+                                cell.value = int(val_str.replace(",", ""))
+                            except ValueError:
+                                try:
+                                    cell.value = float(val_str.replace(",", ""))
+                                except ValueError:
+                                    cell.value = val_str
+                        elif col_index in (6, 8): # Price, Total
+                            try:
+                                cell.value = float(val_str.replace(",", ""))
+                                cell.number_format = "#,##0"
+                            except ValueError:
+                                cell.value = val_str
+                        elif col_index == 7: # Warranty
+                            if val_str == "-":
+                                cell.value = "-"
+                            else:
+                                try:
+                                    cell.value = float(val_str.replace(",", ""))
+                                    cell.number_format = "#,##0"
+                                except ValueError:
+                                    cell.value = val_str
+                        else:
+                            cell.value = val_str
+            
+            # Write new calculation table on the right (Columns J to M, starting at Row 1)
+            calc_start_row = 1
+            new_table_headers = ["年", "金額", "Percentage", "金額"]
+            new_table_cols = [10, 11, 12, 13] # J, K, L, M
+            
+            # Write headers
+            for c_offset, h_text in enumerate(new_table_headers):
+                c_idx = new_table_cols[c_offset]
+                cell = ws.cell(calc_start_row, c_idx)
+                cell.value = h_text
+                cell.font = Font(name="Calibri", size=10, bold=True)
+                cell.fill = PatternFill("solid", fgColor="D9E1F2")
+                cell.alignment = Alignment(vertical="center", horizontal="center")
+                cell.border = thin_border
+            
+            # Ratios for years 1 to 8
+            year_ratios = {
+                1: 0.35,
+                2: 0.35,
+                3: 0.35,
+                4: 0.45,
+                5: 0.55,
+                6: 0.65,
+                7: 0.75,
+                8: 0.85
+            }
+            
+            for year in range(1, 9):
+                r = calc_start_row + year
+                
+                # Col J: Year
+                cell_j = ws.cell(r, 10)
+                cell_j.value = year
+                cell_j.font = Font(name="Calibri", size=10)
+                cell_j.alignment = Alignment(vertical="center", horizontal="center")
+                cell_j.border = thin_border
+                
+                # Col K: Original TTL (金額)
+                cell_k = ws.cell(r, 11)
+                cell_k.value = f'=IF(J{r}={warranty_years}, SUM($H${start_row+1}:$H${start_row+len(rows)-2}), "")'
+                cell_k.font = Font(name="Calibri", size=10)
+                cell_k.alignment = Alignment(vertical="center", horizontal="right")
+                cell_k.number_format = "$#,##0"
+                cell_k.border = thin_border
+                
+                # Col L: Percentage
+                cell_l = ws.cell(r, 12)
+                cell_l.value = year_ratios[year]
+                cell_l.font = Font(name="Calibri", size=10)
+                cell_l.alignment = Alignment(vertical="center", horizontal="right")
+                cell_l.number_format = "0%"
+                cell_l.border = thin_border
+                
+                # Col M: Calculated TTL (金額)
+                cell_m = ws.cell(r, 13)
+                cell_m.value = f'=IF(K{r}<>"", K{r}*(1+L{r}), 0)'
+                cell_m.font = Font(name="Calibri", size=10)
+                cell_m.alignment = Alignment(vertical="center", horizontal="right")
+                cell_m.number_format = "$#,##0"
+                cell_m.border = thin_border
                         
             # Apply blackout to data rows in this table
             black_fill = PatternFill(fill_type="solid", fgColor="000000")
@@ -823,15 +931,40 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
         # Auto fit columns (excluding image/remarks rows width calculations)
         for col_idx in range(1, ws.max_column + 1):
             col_letter = get_column_letter(col_idx)
+            
+            if col_idx == 9: # Column I is the separator, make it narrow
+                ws.column_dimensions[col_letter].width = 3
+                continue
+                
+            if col_idx in (11, 13): # Columns K and M of calculation table: fixed width 12
+                ws.column_dimensions[col_letter].width = 12
+                continue
+                
             max_len = 0
             for table in tables:
                 t_start = table.get("table_start_row", 9)
                 t_end = t_start + len(table["rows"])
-                for r_idx in range(t_start, t_end):
+                if col_idx >= 10:
+                    r_start = 1
+                    r_end = 9
+                else:
+                    r_start = t_start
+                    r_end = t_end
+                for r_idx in range(r_start, r_end + 1):
                     val = str(ws.cell(r_idx, col_idx).value or "")
-                    if val and len(val) > max_len:
-                        max_len = len(val)
-            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 10), 42)
+                    if val.startswith("="):
+                        continue
+                    if val:
+                        line_lens = [get_display_length(line) for line in val.split("\n")]
+                        max_line_len = max(line_lens, default=0)
+                        if max_line_len > max_len:
+                            max_len = max_line_len
+                            
+            if col_idx >= 10:
+                min_w = 6 if col_idx == 10 else 10
+                ws.column_dimensions[col_letter].width = min(max(max_len + 2, min_w), 25)
+            else:
+                ws.column_dimensions[col_letter].width = min(max(max_len + 5, 10), 42)
             
         ws.freeze_panes = None
         
