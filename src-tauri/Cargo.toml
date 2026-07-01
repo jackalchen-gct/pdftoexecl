@@ -1,6 +1,6 @@
 [package]
 name = "pdftoexecl"
-version = "0.3.0"
+version = "0.5.0"
 description = "PDF quotation to Excel converter"
 authors = ["jackal.chen"]
 license = ""

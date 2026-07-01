@@ -19,7 +19,21 @@ export default function VersionModal({ isOpen, onClose }: VersionModalProps) {
 
         <div style={{ padding: "8px 0", maxHeight: "400px", overflowY: "auto" }}>
           <div style={{ marginBottom: "20px" }}>
-            <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#1d3b2a" }}>v0.4.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
+            <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#1d3b2a" }}>v0.5.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-07-01)</span></h3>
+            <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
+              <li><strong>比赫 PDF 報價單「版型二」排版與外框線優化</strong>
+                <ul>
+                  <li><strong>數量與單位分拆</strong>：Qty 與單位拆為兩欄（數量欄與單位欄分開），與舊版欄位結構完全一致。新版表頭合併 Column D 與 E，置中顯示 "Qty"；數據列的數量填入數字，單位置中顯示。</li>
+                  <li><strong>自適應起點與分隔列</strong>：主表價格與試算表公式一律對齊 Column H 欄。分隔列寬度與計算表起點依備註欄是否存在，動態平移（無備註在 I / J，有備註在 J / K），完美對齊。</li>
+                  <li><strong>區塊大外框與分隔線</strong>：上方區塊（公司 Logo、Quotation 表頭、客資區）套用完整的大外框，並於 Quotation 表頭下方繪製分隔線；備註區（Remarks）套用動態寬度大框，移除多餘的空白列。</li>
+                  <li><strong>細部解析優化</strong>：調換項目內容比對優先級以正確提取項目內容；新增 Mail 解析提取與 dynamic 客資標籤。</li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+
+          <div style={{ marginBottom: "20px" }}>
+            <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#6d6254" }}>v0.4.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-06-29)</span></h3>
             <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
               <li><strong>比赫 PDF 報價單「版型二」儲存格樣式與線框優化</strong>
                 <ul>
