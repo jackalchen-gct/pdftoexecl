@@ -978,19 +978,16 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                     ws.cell(curr_row, c_idx).font = black_font
                 curr_row += 1
                 
-            # Spacer row
-            ws.row_dimensions[curr_row + 1].height = 15
-            
             # 4. Remarks Section (A18 onwards)
             if remarks:
                 end_col_letter = get_column_letter(max_cols)
-                ws.row_dimensions[curr_row + 2].height = 18
-                ws.cell(curr_row + 2, 1).value = rem_header
-                ws.cell(curr_row + 2, 1).font = Font(name="Calibri", size=10, bold=True)
-                ws.merge_cells(start_row=curr_row+2, start_column=1, end_row=curr_row+2, end_column=max_cols)
-                style_range(ws, f"A{curr_row+2}:{end_col_letter}{curr_row+2}", alignment=Alignment(vertical="center", horizontal="left", indent=1))
+                ws.row_dimensions[curr_row + 1].height = 18
+                ws.cell(curr_row + 1, 1).value = rem_header
+                ws.cell(curr_row + 1, 1).font = Font(name="Calibri", size=10, bold=True)
+                ws.merge_cells(start_row=curr_row+1, start_column=1, end_row=curr_row+1, end_column=max_cols)
+                style_range(ws, f"A{curr_row+1}:{end_col_letter}{curr_row+1}", alignment=Alignment(vertical="center", horizontal="left", indent=1))
                 
-                r_rem = curr_row + 3
+                r_rem = curr_row + 2
                 for line in rem_body:
                     ws.row_dimensions[r_rem].height = 18
                     ws.cell(r_rem, 1).value = line
@@ -999,13 +996,13 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                     r_rem += 1
                     
                 # Apply outer border around the Remarks section block
-                apply_outer_borders(ws, curr_row + 2, r_rem - 1, 1, max_cols)
+                apply_outer_borders(ws, curr_row + 1, r_rem - 1, 1, max_cols)
                     
                 # Spacer row
                 ws.row_dimensions[r_rem].height = 25
                 row_cursor = r_rem + 1
             else:
-                row_cursor = curr_row + 2
+                row_cursor = curr_row + 1
             
         pdf_doc.close()
         
