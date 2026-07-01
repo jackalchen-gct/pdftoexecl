@@ -82,23 +82,28 @@ def style_merged_range_borders(ws, cell_range: str, border_side: Side):
             cell.border = Border(left=left, right=right, top=top, bottom=bottom)
 
 def parse_customer_info(text: str) -> dict[str, str]:
-    info = {"customer": "", "contact": "", "phone": "", "date": "", "project": ""}
+    info = {"customer": "", "contact": "", "phone": "", "date": "", "project": "", "mail": "", "raw_text": text}
     if not text:
         return info
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     for line in lines:
-        cust_match = re.search(r'(?:客戶|客户)\s*:\s*(.*?)(?=(?:聯繫|联系|聯絡人|報價日期|报价日期|電話|电话|$))', line)
+        cust_match = re.search(r'(?:客戶|客户)\s*:\s*(.*?)(?=(?:聯繫|聯絡人|联系|報價日期|报价日期|電話|电话|Mail|mail|$))', line)
         if cust_match:
             info["customer"] = cust_match.group(1).strip()
             
-        date_match = re.search(r'(?:報價日期|报价日期)\s*:\s*(\d{4}[./-]\d{2}[./-]\d{2})', line)
+        date_match = re.search(r'(?:報價日期|报价日期|日期)\s*:\s*(\d{4}[./-]\d{2}[./-]\d{2})', line)
         if date_match:
             info["date"] = date_match.group(1).strip()
             
-        contact_match = re.search(r'(?:聯繫|联系|聯絡人)\s*:\s*(.*?)(?=(?:客戶|客户|報價日期|报价日期|電話|电话|$))', line)
+        contact_match = re.search(r'(?:聯繫|联絡人|联系)\s*:\s*(.*?)(?=(?:客戶|客户|報價日期|报价日期|電話|电话|Mail|mail|$))', line)
         if contact_match:
             info["contact"] = contact_match.group(1).strip()
             
+        if "專案" in line and ":" in line:
+            val = line.split(":", 1)[1].strip()
+            if not any(kw in val for kw in ("系統", "系統", "報價", "报价")):
+                info["contact"] = val
+                
         phone_match = re.search(r'(?:電話|电话).+?(\+?[\d\s-]{9,})', line)
         if phone_match:
             info["phone"] = phone_match.group(1).strip()
@@ -106,15 +111,31 @@ def parse_customer_info(text: str) -> dict[str, str]:
             phone_match = re.search(r'(?:電話|电话)\s*:\s*([\d\s+-]*)', line)
             if phone_match and phone_match.group(1).strip():
                 info["phone"] = phone_match.group(1).strip()
+                
+        mail_match = re.search(r'(?:Mail|mail|Email|email)\s*:\s*(.*?)(?=(?:客戶|客户|報價日期|报价日期|電話|电话|$))', line)
+        if mail_match:
+            info["mail"] = mail_match.group(1).strip()
             
         if re.match(r'^\+?[\d-]+$', line):
             info["phone"] = line
             
-    project_match = re.search(r'([^\s\n]*(?:報價|报价)(?!日期)[^\s\n]*)', text)
-    if project_match:
-        info["project"] = project_match.group(1).strip()
-        info["project"] = re.sub(r'\s*No\.\s*\d+', '', info["project"])
-        
+    # Project Title extraction:
+    # First check if there is a line in the block containing "液冷", "系統", "系統", "報價", "报价" but without labels
+    for line in lines:
+        clean_line = line.strip()
+        has_label = any(clean_line.startswith(pref) for pref in ("客戶", "客户", "聯繫", "联系", "聯絡人", "Mail", "mail", "電話", "电话", "日期", "報價日期", "报价日期"))
+        if not has_label:
+            if any(kw in clean_line for kw in ("液冷", "系統", "系统", "報價", "报价", "數據中心", "数据中心")):
+                info["project"] = clean_line
+                break
+                
+    if not info["project"]:
+        # Fallback to general regex
+        project_match = re.search(r'([^\s\n]*(?:報價|报价|系統|系统)(?!日期)[^\s\n]*)', text)
+        if project_match:
+            info["project"] = project_match.group(1).strip()
+            info["project"] = re.sub(r'\s*No\.\s*\d+', '', info["project"])
+            
     return info
 
 def split_remarks(text: str) -> list[str]:
@@ -179,7 +200,8 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                     top_y = t.rows[header_idx].bbox[1]
                     
                 # Parse customer info
-                cust_text = grid[1][0] if len(grid) > 1 and grid[1] else ""
+                cust_cells = [cell.strip() for cell in grid[1] if cell] if len(grid) > 1 else []
+                cust_text = "\n".join(cust_cells)
                 customer_info = parse_customer_info(cust_text)
                 
                 headers = []
@@ -187,6 +209,8 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                     parts = []
                     for r_idx in (header_idx - 1, header_idx, header_idx + 1):
                         if 0 <= r_idx < len(grid):
+                            if grid[r_idx] and re.match(r'^\d+$', str(grid[r_idx][0]).strip()):
+                                continue
                             val = grid[r_idx][col_idx].strip()
                             if val and val not in parts:
                                 parts.append(val)
@@ -205,10 +229,10 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                     h_clean = h.lower().replace(" ", "")
                     if "no" in h_clean:
                         col_no = i
-                    elif "專案" in h_clean or "項目" in h_clean:
-                        col_item = i
                     elif "內容" in h_clean:
                         col_desc = i
+                    elif "專案" in h_clean or "項目" in h_clean:
+                        col_item = i
                     elif "單價(usd)/台" in h_clean or "保固單價" in h_clean or (i == 4 and "保固" in h_clean):
                         col_warranty = i
                     elif "單價" in h_clean:
@@ -262,19 +286,47 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                 remarks_text = "\n".join(remarks_text_parts)
                 remarks_lines = split_remarks(remarks_text)
                 
+                is_new_version = any("項目" in h for h in headers)
+                
+                if is_new_version:
+                    r_col_no = 0
+                    r_col_item = 1
+                    r_col_desc = 2
+                    r_col_qty = 3
+                    r_col_price = 4
+                    r_col_warranty = 5
+                    r_col_total = 6
+                else:
+                    r_col_no = 0
+                    r_col_item = 1
+                    r_col_desc = 2
+                    r_col_qty = 3
+                    r_col_unit = 4
+                    r_col_price = 5
+                    r_col_warranty = 6
+                    r_col_total = 7
+                    
                 reordered_data_rows = []
                 for r in data_rows:
-                    reordered_row = [r[idx] if idx < len(r) else "" for idx in col_order]
+                    qty_val = r[col_qty] if col_qty < len(r) else ""
+                    unit_val = r[col_unit] if col_unit is not None and col_unit < len(r) else ""
+                    
+                    r_modified = list(r)
+                    if is_new_version and qty_val and unit_val:
+                        r_modified[col_qty] = f"{qty_val} {unit_val}".strip()
+                        
+                    if is_new_version:
+                        this_col_order = [col_no, col_item, col_desc, col_qty, col_price, col_warranty, col_total]
+                    else:
+                        this_col_order = [col_no, col_item, col_desc, col_qty, col_unit, col_price, col_warranty, col_total]
+                        
+                    if has_remark_col:
+                        this_col_order.append(remark_col_idx)
+                        
+                    reordered_row = [r_modified[idx] if idx < len(r_modified) else "" for idx in this_col_order]
+                    if len(reordered_row) > r_col_item:
+                        reordered_row[r_col_item] = reordered_row[r_col_item].replace("比赫", "")
                     reordered_data_rows.append(reordered_row)
-                
-                r_col_no = 0
-                r_col_item = 1
-                r_col_desc = 2
-                r_col_qty = 3
-                r_col_unit = 4
-                r_col_price = 5
-                r_col_warranty = 6
-                r_col_total = 7
                 
                 warranty_row_idx = -1
                 warranty_years = 3
@@ -304,8 +356,14 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                     ratio = ratios.get(warranty_years, 0.35)
                     grand_total = original_ttl + (original_ttl * ratio)
                 
+                is_new_version = any("項目" in h for h in headers)
+                
                 warranty_header_name = f"{warranty_years}年保固 單價(USD)/台"
-                clean_headers = ["No.", "專案", "內容", "Qty", "單位", "單價(USD)", warranty_header_name, "總計(USD)"]
+                if is_new_version:
+                    clean_headers = ["No", "項目", "項目內容", "Qty", "單價(USD)", warranty_header_name, "總計(USD)"]
+                else:
+                    clean_headers = ["No.", "專案", "內容", "Qty", "單位", "單價(USD)", warranty_header_name, "總計(USD)"]
+                
                 if has_remark_col:
                     clean_headers.append("備註")
                 
@@ -313,12 +371,15 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                 final_rows.extend(reordered_data_rows)
                 
                 if total_row_raw:
-                    total_label = "TTL (USD)"
+                    if is_new_version:
+                        total_label = "Total"
+                    else:
+                        total_label = "TTL (USD)"
                     total_row = [""] * len(clean_headers)
                     total_row[r_col_warranty] = total_label
                     total_row[r_col_total] = f"{grand_total:,.0f}"
                     if has_remark_col and len(total_row_raw) > remark_col_idx:
-                        total_row.append(total_row_raw[remark_col_idx])
+                        total_row[len(clean_headers) - 1] = total_row_raw[remark_col_idx]
                     final_rows.append(total_row)
                     
                 table_entry = {
@@ -330,7 +391,8 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                     "bottom_y": bottom_y,
                     "customer_info": customer_info,
                     "remarks_lines": remarks_lines,
-                    "warranty_years": warranty_years if warranty_row_idx != -1 else 3
+                    "warranty_years": warranty_years if warranty_row_idx != -1 else 3,
+                    "is_new_version": is_new_version
                 }
                 if warranty_row_idx != -1:
                     table_entry["ratio"] = f"{ratio * 100:.0f}%"
@@ -686,6 +748,10 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                 rem_header = rem_body.pop(0)
                 
             rows = table["rows"]
+            max_cols = max((len(row) for row in rows), default=1)
+            end_col_letter = get_column_letter(max_cols)
+            is_new_version = table.get("is_new_version", False)
+            
             warranty_years = table.get("warranty_years", 3)
             ratios = {1: 0.35, 2: 0.35, 3: 0.35, 4: 0.45, 5: 0.55, 6: 0.65}
             ratio = ratios.get(warranty_years, 0.35)
@@ -695,9 +761,9 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             # The last row of remarks will be at:
             end_row = start_row + len(rows) + 2 + len(rem_body)
             
-            # Apply solid white background to the entire page block (A{row_cursor} to H{end_row})
+            # Apply solid white background to the entire page block (A{row_cursor} to end_col_letter{end_row})
             white_fill = PatternFill(fill_type="solid", fgColor="FFFFFF")
-            style_range(ws, f"A{row_cursor}:H{end_row}", fill=white_fill)
+            style_range(ws, f"A{row_cursor}:{end_col_letter}{end_row}", fill=white_fill)
             
             # 1. Company Header Area
             ws.row_dimensions[row_cursor].height = 18
@@ -706,10 +772,10 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             ws.row_dimensions[row_cursor + 3].height = 25
             
             ws.merge_cells(f"A{row_cursor}:B{row_cursor+2}")
-            ws.merge_cells(f"C{row_cursor}:H{row_cursor}")
-            ws.merge_cells(f"C{row_cursor+1}:H{row_cursor+1}")
-            ws.merge_cells(f"C{row_cursor+2}:H{row_cursor+2}")
-            ws.merge_cells(f"A{row_cursor+3}:H{row_cursor+3}")
+            ws.merge_cells(f"C{row_cursor}:{end_col_letter}{row_cursor}")
+            ws.merge_cells(f"C{row_cursor+1}:{end_col_letter}{row_cursor+1}")
+            ws.merge_cells(f"C{row_cursor+2}:{end_col_letter}{row_cursor+2}")
+            ws.merge_cells(f"A{row_cursor+3}:{end_col_letter}{row_cursor+3}")
             
             ws.cell(row_cursor, 3).value = "Beehe Electric (Taicang) Co., Ltd"
             ws.cell(row_cursor + 1, 3).value = "ADD: No.5-1 Shuanghu Road, Taicang City, Jiangsu Province,China"
@@ -717,9 +783,9 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             ws.cell(row_cursor + 3, 1).value = "Quotation"
             
             # Style text
-            style_range(ws, f"C{row_cursor}:H{row_cursor}", font=Font(name="Calibri", size=12, bold=True), alignment=Alignment(vertical="center", horizontal="left"))
-            style_range(ws, f"C{row_cursor+1}:H{row_cursor+2}", font=Font(name="Calibri", size=9), alignment=Alignment(vertical="center", horizontal="left"))
-            style_range(ws, f"A{row_cursor+3}:H{row_cursor+3}", font=Font(name="Calibri", size=16, bold=True), alignment=Alignment(vertical="center", horizontal="center"))
+            style_range(ws, f"C{row_cursor}:{end_col_letter}{row_cursor}", font=Font(name="Calibri", size=12, bold=True), alignment=Alignment(vertical="center", horizontal="left"))
+            style_range(ws, f"C{row_cursor+1}:{end_col_letter}{row_cursor+2}", font=Font(name="Calibri", size=9), alignment=Alignment(vertical="center", horizontal="left"))
+            style_range(ws, f"A{row_cursor+3}:{end_col_letter}{row_cursor+3}", font=Font(name="Calibri", size=16, bold=True), alignment=Alignment(vertical="center", horizontal="center"))
             
             # Insert logo image in A{row_cursor} (spans A1:B3)
             img_logo = Image(str(logo_img_path))
@@ -733,10 +799,21 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             ws.row_dimensions[row_cursor + 6].height = 18
             ws.row_dimensions[row_cursor + 7].height = 18
             
-            ws.cell(row_cursor + 4, 1).value = "客戶 : " + customer_info["customer"]
-            ws.cell(row_cursor + 5, 1).value = "聯繫 : " + customer_info["contact"]
-            ws.cell(row_cursor + 5, 6).value = "報價日期 : " + customer_info["date"]
-            ws.cell(row_cursor + 6, 1).value = "電話 : " + customer_info["phone"]
+            raw_text = customer_info.get("raw_text", "")
+            cust_label = "客户 : " if "客户" in raw_text else "客戶 : "
+            ws.cell(row_cursor + 4, 1).value = cust_label + customer_info["customer"]
+            
+            contact_label = "聯繫 : " if "聯繫" in raw_text or "專案" in raw_text else "联系 : "
+            ws.cell(row_cursor + 5, 1).value = contact_label + customer_info["contact"]
+            
+            date_label = "日期 : " if "日期 :" in raw_text and "報價日期" not in raw_text else "報價日期 : "
+            ws.cell(row_cursor + 5, 6).value = date_label + customer_info["date"]
+            
+            if customer_info.get("mail"):
+                ws.cell(row_cursor + 6, 1).value = "Mail : " + customer_info["mail"]
+            else:
+                ws.cell(row_cursor + 6, 1).value = "電話 : " + customer_info["phone"]
+                
             ws.cell(row_cursor + 7, 1).value = ("專案 : " + customer_info["project"]) if customer_info.get("project") else ""
             
             # Apply styles and borders before merging to ensure openpyxl serializes outer borders correctly
@@ -744,14 +821,14 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
             
             for r in range(row_cursor + 4, row_cursor + 8):
-                for c in range(1, 9):
+                for c in range(1, max_cols + 1):
                     cell = ws.cell(r, c)
                     cell.font = Font(name="Calibri", size=10)
                     cell.alignment = Alignment(vertical="center", horizontal="left", indent=1)
                     
                     # Compute outer border box
                     left = thin_side if c == 1 else None
-                    right = thin_side if c == 8 else None
+                    right = thin_side if c == max_cols else None
                     top = thin_side if r == row_cursor + 4 else None
                     bottom = thin_side if r == row_cursor + 7 else None
                     cell.border = Border(left=left, right=right, top=top, bottom=bottom)
@@ -760,11 +837,11 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             ws.cell(row_cursor + 7, 1).font = Font(name="Calibri", size=10, bold=True, color="FF0000")
             
             # Merge cells after applying borders
-            ws.merge_cells(f"A{row_cursor+4}:H{row_cursor+4}")
-            ws.merge_cells(f"A{row_cursor+5}:E{row_cursor+5}")
-            ws.merge_cells(f"F{row_cursor+5}:H{row_cursor+5}")
-            ws.merge_cells(f"A{row_cursor+6}:H{row_cursor+6}")
-            ws.merge_cells(f"A{row_cursor+7}:H{row_cursor+7}")
+            ws.merge_cells(start_row=row_cursor+4, start_column=1, end_row=row_cursor+4, end_column=max_cols)
+            ws.merge_cells(start_row=row_cursor+5, start_column=1, end_row=row_cursor+5, end_column=5)
+            ws.merge_cells(start_row=row_cursor+5, start_column=6, end_row=row_cursor+5, end_column=max_cols)
+            ws.merge_cells(start_row=row_cursor+6, start_column=1, end_row=row_cursor+6, end_column=max_cols)
+            ws.merge_cells(start_row=row_cursor+7, start_column=1, end_row=row_cursor+7, end_column=max_cols)
             
             # 3. Write Quotation Table starting at row_cursor + 8 (Row 9)
             ws.row_dimensions[start_row].height = 28
@@ -781,7 +858,8 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                     if row_offset == 0:
                         cell.alignment = Alignment(vertical="center", horizontal="center", wrap_text=True)
                         cell.fill = PatternFill("solid", fgColor="D9E1F2")
-                        if col_index == 7: # Column G
+                        warranty_col = 6 if is_new_version else 7
+                        if col_index == warranty_col:
                             red_font = InlineFont(rFont="Calibri", sz=11, b=True, color="FF0000")
                             black_font = InlineFont(rFont="Calibri", sz=11, b=True, color="000000")
                             cell.value = CellRichText(
@@ -792,40 +870,69 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                             cell.value = val_str
                             cell.font = Font(bold=True)
                     elif row_offset == len(rows) - 1: # Total row
-                        if col_index == 8: # Column H
-                            cell.value = f"=SUM(H{start_row+1}:H{start_row+len(rows)-2}) * (1 + {ratio})"
+                        total_col = 7 if is_new_version else 8
+                        total_col_letter = "G" if is_new_version else "H"
+                        if col_index == total_col:
+                            cell.value = f"=SUM({total_col_letter}{start_row+1}:{total_col_letter}{start_row+len(rows)-2}) * (1 + {ratio})"
                             cell.number_format = "#,##0"
                         else:
                             cell.value = val_str
                     else: # Data rows
-                        if col_index == 4: # Qty
-                            try:
-                                cell.value = int(val_str.replace(",", ""))
-                            except ValueError:
-                                try:
-                                    cell.value = float(val_str.replace(",", ""))
-                                except ValueError:
-                                    cell.value = val_str
-                        elif col_index in (6, 8): # Price, Total
-                            try:
-                                cell.value = float(val_str.replace(",", ""))
-                                cell.number_format = "#,##0"
-                            except ValueError:
+                        if is_new_version:
+                            # New version columns
+                            # 1: No, 2: Item, 3: Desc, 4: Qty (combined string)
+                            # 5: Price (float), 6: Warranty (float), 7: Total (float)
+                            if col_index == 4:
                                 cell.value = val_str
-                        elif col_index == 7: # Warranty
-                            if val_str == "-":
-                                cell.value = "-"
-                            else:
+                                cell.alignment = Alignment(vertical="center", horizontal="center")
+                            elif col_index in (5, 7): # Price, Total
                                 try:
                                     cell.value = float(val_str.replace(",", ""))
                                     cell.number_format = "#,##0"
                                 except ValueError:
                                     cell.value = val_str
+                            elif col_index == 6: # Warranty
+                                if val_str == "-":
+                                    cell.value = "-"
+                                else:
+                                    try:
+                                        cell.value = float(val_str.replace(",", ""))
+                                        cell.number_format = "#,##0"
+                                    except ValueError:
+                                        cell.value = val_str
+                            else:
+                                cell.value = val_str
                         else:
-                            cell.value = val_str
+                            # Old version columns
+                            # 1: No., 2: Item, 3: Desc, 4: Qty (int), 5: Unit (string), 6: Price (float), 7: Warranty (float), 8: Total (float)
+                            if col_index == 4: # Qty
+                                try:
+                                    cell.value = int(val_str.replace(",", ""))
+                                except ValueError:
+                                    cell.value = val_str
+                            elif col_index == 5: # Unit
+                                cell.value = val_str
+                                cell.alignment = Alignment(vertical="center", horizontal="center")
+                            elif col_index in (6, 8): # Price, Total
+                                try:
+                                    cell.value = float(val_str.replace(",", ""))
+                                    cell.number_format = "#,##0"
+                                except ValueError:
+                                    cell.value = val_str
+                            elif col_index == 7: # Warranty
+                                if val_str == "-":
+                                    cell.value = "-"
+                                else:
+                                    try:
+                                        cell.value = float(val_str.replace(",", ""))
+                                        cell.number_format = "#,##0"
+                                    except ValueError:
+                                        cell.value = val_str
+                            else:
+                                cell.value = val_str
             
-            # Write new calculation table on the right (Columns J to M, starting at Row 1)
-            calc_start_row = 1
+            # Write new calculation table on the right (Columns J to M, starting at row_cursor)
+            calc_start_row = row_cursor
             new_table_headers = ["年", "金額", "Percentage", "金額"]
             new_table_cols = [10, 11, 12, 13] # J, K, L, M
             
@@ -863,7 +970,8 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                 
                 # Col K: Original TTL (金額)
                 cell_k = ws.cell(r, 11)
-                cell_k.value = f'=IF(J{r}={warranty_years}, SUM($H${start_row+1}:$H${start_row+len(rows)-2}), "")'
+                total_col_letter = "G" if is_new_version else "H"
+                cell_k.value = f'=IF(J{r}={warranty_years}, SUM(${total_col_letter}${start_row+1}:${total_col_letter}${start_row+len(rows)-2}), "")'
                 cell_k.font = Font(name="Calibri", size=10)
                 cell_k.alignment = Alignment(vertical="center", horizontal="right")
                 cell_k.number_format = "$#,##0"
@@ -945,8 +1053,8 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                 t_start = table.get("table_start_row", 9)
                 t_end = t_start + len(table["rows"])
                 if col_idx >= 10:
-                    r_start = 1
-                    r_end = 9
+                    r_start = t_start - 8
+                    r_end = t_start
                 else:
                     r_start = t_start
                     r_end = t_end
