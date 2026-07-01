@@ -288,42 +288,22 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                 
                 is_new_version = any("項目" in h for h in headers)
                 
-                if is_new_version:
-                    r_col_no = 0
-                    r_col_item = 1
-                    r_col_desc = 2
-                    r_col_qty = 3
-                    r_col_price = 4
-                    r_col_warranty = 5
-                    r_col_total = 6
-                else:
-                    r_col_no = 0
-                    r_col_item = 1
-                    r_col_desc = 2
-                    r_col_qty = 3
-                    r_col_unit = 4
-                    r_col_price = 5
-                    r_col_warranty = 6
-                    r_col_total = 7
-                    
+                r_col_no = 0
+                r_col_item = 1
+                r_col_desc = 2
+                r_col_qty = 3
+                r_col_unit = 4
+                r_col_price = 5
+                r_col_warranty = 6
+                r_col_total = 7
+                
                 reordered_data_rows = []
                 for r in data_rows:
-                    qty_val = r[col_qty] if col_qty < len(r) else ""
-                    unit_val = r[col_unit] if col_unit is not None and col_unit < len(r) else ""
-                    
-                    r_modified = list(r)
-                    if is_new_version and qty_val and unit_val:
-                        r_modified[col_qty] = f"{qty_val} {unit_val}".strip()
-                        
-                    if is_new_version:
-                        this_col_order = [col_no, col_item, col_desc, col_qty, col_price, col_warranty, col_total]
-                    else:
-                        this_col_order = [col_no, col_item, col_desc, col_qty, col_unit, col_price, col_warranty, col_total]
-                        
+                    this_col_order = [col_no, col_item, col_desc, col_qty, col_unit, col_price, col_warranty, col_total]
                     if has_remark_col:
                         this_col_order.append(remark_col_idx)
                         
-                    reordered_row = [r_modified[idx] if idx < len(r_modified) else "" for idx in this_col_order]
+                    reordered_row = [r[idx] if idx < len(r) else "" for idx in this_col_order]
                     if len(reordered_row) > r_col_item:
                         reordered_row[r_col_item] = reordered_row[r_col_item].replace("比赫", "")
                     reordered_data_rows.append(reordered_row)
@@ -360,7 +340,7 @@ def extract_beehe_document(pdf_path: Path, target_pages: set[int] | None = None)
                 
                 warranty_header_name = f"{warranty_years}年保固 單價(USD)/台"
                 if is_new_version:
-                    clean_headers = ["No", "項目", "項目內容", "Qty", "單價(USD)", warranty_header_name, "總計(USD)"]
+                    clean_headers = ["No", "項目", "項目內容", "Qty", "", "單價(USD)", warranty_header_name, "總計(USD)"]
                 else:
                     clean_headers = ["No.", "專案", "內容", "Qty", "單位", "單價(USD)", warranty_header_name, "總計(USD)"]
                 
@@ -826,18 +806,7 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                     cell.font = Font(name="Calibri", size=10)
                     cell.alignment = Alignment(vertical="center", horizontal="left", indent=1)
                     
-                    # Compute outer border box
-                    left = thin_side if c == 1 else None
-                    right = thin_side if c == max_cols else None
-                    top = thin_side if r == row_cursor + 4 else None
-                    bottom = thin_side if r == row_cursor + 7 else None
-                    cell.border = Border(left=left, right=right, top=top, bottom=bottom)
-            
-            # Special font styling for the project cell
-            ws.cell(row_cursor + 7, 1).font = Font(name="Calibri", size=10, bold=True, color="FF0000")
-            
-            # Merge cells after applying borders
-            ws.merge_cells(start_row=row_cursor+4, start_column=1, end_row=row_cursor+4, end_column=max_cols)
+                    #            ws.merge_cells(start_row=row_cursor+4, start_column=1, end_row=row_cursor+4, end_column=max_cols)
             ws.merge_cells(start_row=row_cursor+5, start_column=1, end_row=row_cursor+5, end_column=5)
             ws.merge_cells(start_row=row_cursor+5, start_column=6, end_row=row_cursor+5, end_column=max_cols)
             ws.merge_cells(start_row=row_cursor+6, start_column=1, end_row=row_cursor+6, end_column=max_cols)
@@ -858,8 +827,7 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                     if row_offset == 0:
                         cell.alignment = Alignment(vertical="center", horizontal="center", wrap_text=True)
                         cell.fill = PatternFill("solid", fgColor="D9E1F2")
-                        warranty_col = 6 if is_new_version else 7
-                        if col_index == warranty_col:
+                        if col_index == 7: # Column G is always the warranty column header
                             red_font = InlineFont(rFont="Calibri", sz=11, b=True, color="FF0000")
                             black_font = InlineFont(rFont="Calibri", sz=11, b=True, color="000000")
                             cell.value = CellRichText(
@@ -870,71 +838,52 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                             cell.value = val_str
                             cell.font = Font(bold=True)
                     elif row_offset == len(rows) - 1: # Total row
-                        total_col = 7 if is_new_version else 8
-                        total_col_letter = "G" if is_new_version else "H"
-                        if col_index == total_col:
-                            cell.value = f"=SUM({total_col_letter}{start_row+1}:{total_col_letter}{start_row+len(rows)-2}) * (1 + {ratio})"
+                        if col_index == 8: # Column H is always the total sum column
+                            cell.value = f"=SUM(H{start_row+1}:H{start_row+len(rows)-2}) * (1 + {ratio})"
                             cell.number_format = "#,##0"
                         else:
                             cell.value = val_str
-                    else: # Data rows
-                        if is_new_version:
-                            # New version columns
-                            # 1: No, 2: Item, 3: Desc, 4: Qty (combined string)
-                            # 5: Price (float), 6: Warranty (float), 7: Total (float)
-                            if col_index == 4:
+                    else: # Data rows (same column layout for both versions)
+                        if col_index == 4: # Qty
+                            try:
+                                cell.value = int(val_str.replace(",", ""))
+                            except ValueError:
                                 cell.value = val_str
-                                cell.alignment = Alignment(vertical="center", horizontal="center")
-                            elif col_index in (5, 7): # Price, Total
+                        elif col_index == 5: # Unit / Empty
+                            cell.value = val_str
+                            cell.alignment = Alignment(vertical="center", horizontal="center")
+                        elif col_index in (6, 8): # Price, Total
+                            try:
+                                cell.value = float(val_str.replace(",", ""))
+                                cell.number_format = "#,##0"
+                            except ValueError:
+                                cell.value = val_str
+                        elif col_index == 7: # Warranty
+                            if val_str == "-":
+                                cell.value = "-"
+                            else:
                                 try:
                                     cell.value = float(val_str.replace(",", ""))
                                     cell.number_format = "#,##0"
                                 except ValueError:
                                     cell.value = val_str
-                            elif col_index == 6: # Warranty
-                                if val_str == "-":
-                                    cell.value = "-"
-                                else:
-                                    try:
-                                        cell.value = float(val_str.replace(",", ""))
-                                        cell.number_format = "#,##0"
-                                    except ValueError:
-                                        cell.value = val_str
-                            else:
-                                cell.value = val_str
                         else:
-                            # Old version columns
-                            # 1: No., 2: Item, 3: Desc, 4: Qty (int), 5: Unit (string), 6: Price (float), 7: Warranty (float), 8: Total (float)
-                            if col_index == 4: # Qty
-                                try:
-                                    cell.value = int(val_str.replace(",", ""))
-                                except ValueError:
-                                    cell.value = val_str
-                            elif col_index == 5: # Unit
-                                cell.value = val_str
-                                cell.alignment = Alignment(vertical="center", horizontal="center")
-                            elif col_index in (6, 8): # Price, Total
-                                try:
-                                    cell.value = float(val_str.replace(",", ""))
-                                    cell.number_format = "#,##0"
-                                except ValueError:
-                                    cell.value = val_str
-                            elif col_index == 7: # Warranty
-                                if val_str == "-":
-                                    cell.value = "-"
-                                else:
-                                    try:
-                                        cell.value = float(val_str.replace(",", ""))
-                                        cell.number_format = "#,##0"
-                                    except ValueError:
-                                        cell.value = val_str
-                            else:
-                                cell.value = val_str
+                            cell.value = val_str
             
-            # Write new calculation table on the right (Columns J to M, starting at row_cursor)
+            if is_new_version:
+                ws.merge_cells(start_row=start_row, start_column=4, end_row=start_row, end_column=5)
+            
+            # Write new calculation table on the right (starting at max_cols + 2, aligning with row_cursor)
             calc_start_row = row_cursor
+            calc_start_col = max_cols + 2
             new_table_headers = ["年", "金額", "Percentage", "金額"]
-            new_table_cols = [10, 11, 12, 13] # J, K, L, M
+            new_table_cols = [calc_start_col, calc_start_col + 1, calc_start_col + 2, calc_start_col + 3]
+            
+            # Letters for the calculation columns
+            col_year_letter = get_column_letter(calc_start_col)
+            col_orig_letter = get_column_letter(calc_start_col + 1)
+            col_pct_letter = get_column_letter(calc_start_col + 2)
+            col_calc_letter = get_column_letter(calc_start_col + 3)
             
             # Write headers
             for c_offset, h_text in enumerate(new_table_headers):
@@ -961,33 +910,32 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             for year in range(1, 9):
                 r = calc_start_row + year
                 
-                # Col J: Year
-                cell_j = ws.cell(r, 10)
+                # Col 1: Year
+                cell_j = ws.cell(r, calc_start_col)
                 cell_j.value = year
                 cell_j.font = Font(name="Calibri", size=10)
                 cell_j.alignment = Alignment(vertical="center", horizontal="center")
                 cell_j.border = thin_border
                 
-                # Col K: Original TTL (金額)
-                cell_k = ws.cell(r, 11)
-                total_col_letter = "G" if is_new_version else "H"
-                cell_k.value = f'=IF(J{r}={warranty_years}, SUM(${total_col_letter}${start_row+1}:${total_col_letter}${start_row+len(rows)-2}), "")'
+                # Col 2: Original TTL (金額)
+                cell_k = ws.cell(r, calc_start_col + 1)
+                cell_k.value = f'=IF({col_year_letter}{r}={warranty_years}, SUM($H${start_row+1}:$H${start_row+len(rows)-2}), "")'
                 cell_k.font = Font(name="Calibri", size=10)
                 cell_k.alignment = Alignment(vertical="center", horizontal="right")
                 cell_k.number_format = "$#,##0"
                 cell_k.border = thin_border
                 
-                # Col L: Percentage
-                cell_l = ws.cell(r, 12)
+                # Col 3: Percentage
+                cell_l = ws.cell(r, calc_start_col + 2)
                 cell_l.value = year_ratios[year]
                 cell_l.font = Font(name="Calibri", size=10)
                 cell_l.alignment = Alignment(vertical="center", horizontal="right")
                 cell_l.number_format = "0%"
                 cell_l.border = thin_border
                 
-                # Col M: Calculated TTL (金額)
-                cell_m = ws.cell(r, 13)
-                cell_m.value = f'=IF(K{r}<>"", K{r}*(1+L{r}), 0)'
+                # Col 4: Calculated TTL (金額)
+                cell_m = ws.cell(r, calc_start_col + 3)
+                cell_m.value = f'=IF({col_orig_letter}{r}<>"", {col_orig_letter}{r}*(1+{col_pct_letter}{r}), 0)'
                 cell_m.font = Font(name="Calibri", size=10)
                 cell_m.alignment = Alignment(vertical="center", horizontal="right")
                 cell_m.number_format = "$#,##0"
@@ -1037,14 +985,18 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
         pdf_doc.close()
         
         # Auto fit columns (excluding image/remarks rows width calculations)
+        max_cols_all = max((len(t["rows"][0]) for t in tables), default=8)
+        separator_col = max_cols_all + 1
+        calc_start_col = max_cols_all + 2
+        
         for col_idx in range(1, ws.max_column + 1):
             col_letter = get_column_letter(col_idx)
             
-            if col_idx == 9: # Column I is the separator, make it narrow
+            if col_idx == separator_col: # Separator column, make it narrow
                 ws.column_dimensions[col_letter].width = 3
                 continue
                 
-            if col_idx in (11, 13): # Columns K and M of calculation table: fixed width 12
+            if col_idx in (calc_start_col + 1, calc_start_col + 3): # Fixed width columns in calculation table
                 ws.column_dimensions[col_letter].width = 12
                 continue
                 
@@ -1052,7 +1004,7 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             for table in tables:
                 t_start = table.get("table_start_row", 9)
                 t_end = t_start + len(table["rows"])
-                if col_idx >= 10:
+                if col_idx >= calc_start_col:
                     r_start = t_start - 8
                     r_end = t_start
                 else:
@@ -1068,8 +1020,8 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                         if max_line_len > max_len:
                             max_len = max_line_len
                             
-            if col_idx >= 10:
-                min_w = 6 if col_idx == 10 else 10
+            if col_idx >= calc_start_col:
+                min_w = 6 if col_idx == calc_start_col else 10
                 ws.column_dimensions[col_letter].width = min(max(max_len + 2, min_w), 25)
             else:
                 ws.column_dimensions[col_letter].width = min(max(max_len + 5, 10), 42)
