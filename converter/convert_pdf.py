@@ -81,6 +81,25 @@ def style_merged_range_borders(ws, cell_range: str, border_side: Side):
             bottom = border_side if r == max_row else None
             cell.border = Border(left=left, right=right, top=top, bottom=bottom)
 
+def apply_outer_borders(ws, start_row, end_row, start_col, end_col, divider_row=None):
+    thin_side = Side(style="thin", color="000000")
+    for r in range(start_row, end_row + 1):
+        for c in range(start_col, end_col + 1):
+            cell = ws.cell(r, c)
+            current_border = cell.border
+            
+            left_border = thin_side if c == start_col else (current_border.left if current_border else None)
+            right_border = thin_side if c == end_col else (current_border.right if current_border else None)
+            top_border = thin_side if r == start_row else (current_border.top if current_border else None)
+            
+            is_bottom = (r == end_row) or (divider_row is not None and r == divider_row)
+            bottom_border = thin_side if is_bottom else (current_border.bottom if current_border else None)
+            
+            if divider_row is not None and r == divider_row + 1:
+                top_border = thin_side
+                
+            cell.border = Border(left=left_border, right=right_border, top=top_border, bottom=bottom_border)
+
 def parse_customer_info(text: str) -> dict[str, str]:
     info = {"customer": "", "contact": "", "phone": "", "date": "", "project": "", "mail": "", "raw_text": text}
     if not text:
@@ -735,6 +754,8 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             warranty_years = table.get("warranty_years", 3)
             ratios = {1: 0.35, 2: 0.35, 3: 0.35, 4: 0.45, 5: 0.55, 6: 0.65}
             ratio = ratios.get(warranty_years, 0.35)
+            thin_side = Side(style="thin", color="000000")
+            thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
             start_row = row_cursor + 8
             table.setdefault("table_start_row", start_row)
             
@@ -797,20 +818,19 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             ws.cell(row_cursor + 7, 1).value = ("專案 : " + customer_info["project"]) if customer_info.get("project") else ""
             
             # Apply styles and borders before merging to ensure openpyxl serializes outer borders correctly
-            thin_side = Side(style="thin", color="000000")
-            thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
-            
             for r in range(row_cursor + 4, row_cursor + 8):
                 for c in range(1, max_cols + 1):
                     cell = ws.cell(r, c)
                     cell.font = Font(name="Calibri", size=10)
                     cell.alignment = Alignment(vertical="center", horizontal="left", indent=1)
                     
-                    #            ws.merge_cells(start_row=row_cursor+4, start_column=1, end_row=row_cursor+4, end_column=max_cols)
             ws.merge_cells(start_row=row_cursor+5, start_column=1, end_row=row_cursor+5, end_column=5)
             ws.merge_cells(start_row=row_cursor+5, start_column=6, end_row=row_cursor+5, end_column=max_cols)
             ws.merge_cells(start_row=row_cursor+6, start_column=1, end_row=row_cursor+6, end_column=max_cols)
             ws.merge_cells(start_row=row_cursor+7, start_column=1, end_row=row_cursor+7, end_column=max_cols)
+            
+            # Apply outer border around the entire company header + customer info block (Rows 1-8) with divider line
+            apply_outer_borders(ws, row_cursor, row_cursor + 7, 1, max_cols, divider_row=row_cursor + 3)
             
             # 3. Write Quotation Table starting at row_cursor + 8 (Row 9)
             ws.row_dimensions[start_row].height = 28
@@ -962,25 +982,30 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             ws.row_dimensions[curr_row + 1].height = 15
             
             # 4. Remarks Section (A18 onwards)
-            ws.row_dimensions[curr_row + 2].height = 18
-            ws.cell(curr_row + 2, 1).value = rem_header
-            ws.cell(curr_row + 2, 1).font = Font(name="Calibri", size=10, bold=True)
-            ws.merge_cells(f"A{curr_row+2}:H{curr_row+2}")
-            style_range(ws, f"A{curr_row+2}:H{curr_row+2}", alignment=Alignment(vertical="center", horizontal="left"))
-            
-            r_rem = curr_row + 3
-            for line in rem_body:
-                ws.row_dimensions[r_rem].height = 18
-                ws.cell(r_rem, 1).value = line
-                ws.merge_cells(f"A{r_rem}:H{r_rem}")
-                style_range(ws, f"A{r_rem}:H{r_rem}", font=Font(name="Calibri", size=9), alignment=Alignment(vertical="center", horizontal="left", wrap_text=True))
-                r_rem += 1
+            if remarks:
+                end_col_letter = get_column_letter(max_cols)
+                ws.row_dimensions[curr_row + 2].height = 18
+                ws.cell(curr_row + 2, 1).value = rem_header
+                ws.cell(curr_row + 2, 1).font = Font(name="Calibri", size=10, bold=True)
+                ws.merge_cells(start_row=curr_row+2, start_column=1, end_row=curr_row+2, end_column=max_cols)
+                style_range(ws, f"A{curr_row+2}:{end_col_letter}{curr_row+2}", alignment=Alignment(vertical="center", horizontal="left", indent=1))
                 
-            # Spacer row
-            ws.row_dimensions[r_rem].height = 25
-            
-            # Move cursor
-            row_cursor = r_rem + 1
+                r_rem = curr_row + 3
+                for line in rem_body:
+                    ws.row_dimensions[r_rem].height = 18
+                    ws.cell(r_rem, 1).value = line
+                    ws.merge_cells(start_row=r_rem, start_column=1, end_row=r_rem, end_column=max_cols)
+                    style_range(ws, f"A{r_rem}:{end_col_letter}{r_rem}", font=Font(name="Calibri", size=9), alignment=Alignment(vertical="center", horizontal="left", wrap_text=True, indent=1))
+                    r_rem += 1
+                    
+                # Apply outer border around the Remarks section block
+                apply_outer_borders(ws, curr_row + 2, r_rem - 1, 1, max_cols)
+                    
+                # Spacer row
+                ws.row_dimensions[r_rem].height = 25
+                row_cursor = r_rem + 1
+            else:
+                row_cursor = curr_row + 2
             
         pdf_doc.close()
         
