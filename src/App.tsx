@@ -55,6 +55,7 @@ export default function App() {
   const [outputDir, setOutputDir] = useState<string>("");
   const [projectName, setProjectName] = useState<string>("");
   const [existingSheets, setExistingSheets] = useState<string[]>([]);
+  const [overwrite, setOverwrite] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<ConvertResult[]>([]);
   const [pdfPreviews, setPdfPreviews] = useState<ConvertResult[]>([]);
@@ -78,6 +79,17 @@ export default function App() {
     () => pdfPreviews.reduce((sum, preview) => sum + preview.pages.length, 0),
     [pdfPreviews],
   );
+
+  const hasUnselectedMultiPagePdfs = useMemo(() => {
+    return pdfs.some((path) => {
+      const preview = pdfPreviews.find((p) => p.input === path);
+      if (!preview) return false;
+      if (preview.pages.length > 1) {
+        return !selectedPages[path] || selectedPages[path].length === 0;
+      }
+      return false;
+    });
+  }, [pdfs, pdfPreviews, selectedPages]);
 
   const [isDragging, setIsDragging] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
@@ -381,7 +393,10 @@ export default function App() {
               {projectName.trim() && (
                 <span 
                   style={{ fontSize: "0.82rem", color: "#6d6254", cursor: "pointer", fontWeight: "bold" }}
-                  onClick={() => setProjectName("")}
+                  onClick={() => {
+                    setProjectName("");
+                    setOverwrite(false);
+                  }}
                 >
                   清除 ❌
                 </span>
@@ -392,13 +407,16 @@ export default function App() {
                 type="text"
                 placeholder="輸入專案名稱以命名 Excel 及 Sheet..."
                 value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
+                onChange={(e) => {
+                  setProjectName(e.target.value);
+                  setOverwrite(false); // Reset overwrite checkbox when name changes
+                }}
                 style={{
                   width: "100%",
                   padding: "12px 14px",
                   fontSize: "0.95rem",
                   borderRadius: "14px",
-                  border: projectName.trim() && existingSheets.includes(projectName.trim()) ? "2px solid #ab3625" : "1px solid rgba(47, 42, 31, 0.2)",
+                  border: projectName.trim() && existingSheets.includes(projectName.trim()) && !overwrite ? "2px solid #ab3625" : "1px solid rgba(47, 42, 31, 0.2)",
                   background: "rgba(255, 255, 255, 0.95)",
                   color: "#1d3b2a",
                   outline: "none",
@@ -407,8 +425,19 @@ export default function App() {
                 }}
               />
               {projectName.trim() && existingSheets.includes(projectName.trim()) ? (
-                <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "#ab3625", fontSize: "0.82rem", fontWeight: "bold" }}>
-                  <span>⚠️ 此專案名稱已存在於匯總管理表！</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "#ab3625", fontSize: "0.82rem", fontWeight: "bold" }}>
+                    <span>⚠️ 此專案名稱已存在於匯總管理表！</span>
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "0.85rem", color: "#ab3625", fontWeight: "bold", userSelect: "none" }}>
+                    <input
+                      type="checkbox"
+                      checked={overwrite}
+                      onChange={(e) => setOverwrite(e.target.checked)}
+                      style={{ cursor: "pointer" }}
+                    />
+                    <span>覆蓋同名專案</span>
+                  </label>
                 </div>
               ) : (
                 <div style={{ color: "#6d6254", fontSize: "0.82rem", opacity: 0.8 }}>
@@ -420,21 +449,21 @@ export default function App() {
         </div>
 
         {/* 轉成 Excel 開始轉換按鈕 */}
-        <div style={{ display: "flex", justifyContent: "center", marginTop: "24px" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "24px" }}>
           <button 
             className="primary" 
             onClick={(e) => {
               e.stopPropagation();
               convert();
             }} 
-            disabled={busy || !pdfs.length || !outputDir || (projectName.trim() !== "" && existingSheets.includes(projectName.trim()))}
+            disabled={busy || !pdfs.length || !outputDir || (projectName.trim() !== "" && existingSheets.includes(projectName.trim()) && !overwrite) || hasUnselectedMultiPagePdfs}
             style={{ 
               width: "100%", 
               maxWidth: "480px", 
               padding: "1rem 2rem", 
               fontSize: "1.1rem",
               borderRadius: "999px",
-              boxShadow: !pdfs.length || !outputDir || (projectName.trim() !== "" && existingSheets.includes(projectName.trim())) ? "none" : "0 8px 26px rgba(44, 114, 75, 0.22)"
+              boxShadow: !pdfs.length || !outputDir || (projectName.trim() !== "" && existingSheets.includes(projectName.trim()) && !overwrite) || hasUnselectedMultiPagePdfs ? "none" : "0 8px 26px rgba(44, 114, 75, 0.22)"
             }}
           >
             {busy ? (
@@ -445,6 +474,11 @@ export default function App() {
               "🚀 開始轉換為 Excel"
             )}
           </button>
+          {hasUnselectedMultiPagePdfs && (
+            <div style={{ color: "#ab3625", fontSize: "0.9rem", fontWeight: "bold", marginTop: "10px", textAlign: "center" }}>
+              ⚠️ 請在下方預覽區勾選多頁 PDF 要轉換的頁數！
+            </div>
+          )}
         </div>
       </section>
 
