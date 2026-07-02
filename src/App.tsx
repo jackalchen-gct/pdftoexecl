@@ -755,6 +755,9 @@ function getDefaultProjectName(fileName: string): string {
   // Remove extension .pdf (case insensitive)
   let name = fileName.replace(/\.pdf$/i, "");
   
+  // Remove "比赫-" or "比赫" prefix
+  name = name.replace(/^比赫\s*[-_]?\s*/i, "");
+
   // Remove common date formats:
   // 1. YYYYMMDD (e.g., 20260317)
   name = name.replace(/\b\d{8}\b/g, "");

@@ -803,7 +803,7 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             
             # Crop Logo icon (from coords: x0=48.20, x1=92.32, top=65.14, bottom=106.14)
             logo_img_path = Path(tempfile.gettempdir()) / f"temp_{output_path.stem}_logo_{page_index}.png"
-            pix_logo = page_fitz.get_pixmap(clip=fitz.Rect(45.0, 60.0, 95.0, 97.0), matrix=fitz.Matrix(3.0, 3.0))
+            pix_logo = page_fitz.get_pixmap(clip=fitz.Rect(45.0, 61.0, 95.0, 98.0), matrix=fitz.Matrix(3.0, 3.0))
             pix_logo.save(str(logo_img_path))
             temp_images.append(logo_img_path)
             
