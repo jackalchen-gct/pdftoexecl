@@ -9,7 +9,8 @@
     "build:sidecar": "powershell -ExecutionPolicy Bypass -File .\\scripts\\build-sidecar.ps1",
     "dev:tauri": "powershell -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1",
     "build": "npm run build:web && npm run build:sidecar",
-    "tauri": "powershell -ExecutionPolicy Bypass -File .\\scripts\\tauri-wrapper.ps1"
+    "tauri": "tauri",
+    "build:portable": "npm run build && npx tauri build && powershell -ExecutionPolicy Bypass -File .\\scripts\\build-portable.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

@@ -791,7 +791,7 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             
             # Crop Logo icon (from coords: x0=48.20, x1=92.32, top=65.14, bottom=106.14)
             logo_img_path = Path(tempfile.gettempdir()) / f"temp_{output_path.stem}_logo_{page_index}.png"
-            pix_logo = page_fitz.get_pixmap(clip=fitz.Rect(45.0, 58.5, 95.0, 97.0), matrix=fitz.Matrix(3.0, 3.0))
+            pix_logo = page_fitz.get_pixmap(clip=fitz.Rect(45.0, 60.0, 95.0, 97.0), matrix=fitz.Matrix(3.0, 3.0))
             pix_logo.save(str(logo_img_path))
             temp_images.append(logo_img_path)
             
@@ -850,7 +850,14 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             img_logo = Image(str(logo_img_path))
             img_logo.width = int(50 * 96 / 72)
             img_logo.height = int(50 * 96 / 72)
-            ws.add_image(img_logo, f"A{row_cursor}")
+            
+            from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
+            from openpyxl.drawing.xdr import XDRPositiveSize2D
+            # Shift 2 pixels right (19050 EMUs) and 2 pixels down (19050 EMUs) to avoid border overlap
+            marker = AnchorMarker(col=0, colOff=19050, row=row_cursor-1, rowOff=19050)
+            ext = XDRPositiveSize2D(cx=img_logo.width * 9525, cy=img_logo.height * 9525)
+            img_logo.anchor = OneCellAnchor(_from=marker, ext=ext)
+            ws.add_image(img_logo)
             
             # 2. Customer Info Area (Row 5 to Row 8)
             ws.row_dimensions[row_cursor + 4].height = 18
