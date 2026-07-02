@@ -7,6 +7,9 @@ $zipFile = "$workspace\src-tauri\target\pdftoexecl-portable.zip"
 
 Write-Host "=== Starting Portable Build Packaging ===" -ForegroundColor Green
 
+# Stop any background instances of pdftoexecl.exe first to prevent lock errors
+Stop-Process -Name "pdftoexecl" -Force -ErrorAction SilentlyContinue
+
 # Create directories if they don't exist
 if (-not (Test-Path $portableBinDir)) {
     New-Item -ItemType Directory -Path $portableBinDir -Force | Out-Null
@@ -29,6 +32,10 @@ if (Test-Path $appSource) {
 } else {
     Write-Warning "App source not found at $appSource"
 }
+
+# Sleep for a few seconds to let Trend Micro antivirus release the file lock
+Write-Host "Waiting 3 seconds for antivirus file scan to release locks..." -ForegroundColor Yellow
+Start-Sleep -Seconds 3
 
 # Zip pdftoexecl-portable
 if (Test-Path $zipFile) {
