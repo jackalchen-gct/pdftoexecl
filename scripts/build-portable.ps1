@@ -34,8 +34,8 @@ if (Test-Path $appSource) {
 }
 
 # Sleep for a few seconds to let Trend Micro antivirus release the file lock
-Write-Host "Waiting 3 seconds for antivirus file scan to release locks..." -ForegroundColor Yellow
-Start-Sleep -Seconds 3
+Write-Host "Waiting 8 seconds for antivirus file scan to release locks..." -ForegroundColor Yellow
+Start-Sleep -Seconds 8
 
 # Zip pdftoexecl-portable
 if (Test-Path $zipFile) {

@@ -73,6 +73,8 @@ Invoke-Python -Runner $VenvPython -Arguments @(
     (Join-Path $BuildRoot "work"),
     "--specpath",
     (Join-Path $BuildRoot "spec"),
+    "--add-data",
+    "$(Join-Path $ProjectRoot 'beehe.png');.",
     $ConverterScript
 )
 

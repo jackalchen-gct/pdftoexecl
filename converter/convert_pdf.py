@@ -27,6 +27,12 @@ sys.stderr.reconfigure(encoding="utf-8")
 LOGS: list[str] = []
 
 
+def get_resource_path(relative_path: str) -> Path:
+    if hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS) / relative_path
+    return Path(__file__).parent.parent / relative_path
+
+
 def log(msg: str) -> None:
     LOGS.append(msg)
     print(msg, file=sys.stderr)
@@ -801,11 +807,10 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             width = page_fitz.rect.width
             height = page_fitz.rect.height
             
-            # Crop Logo icon (from coords: x0=48.20, x1=92.32, top=65.14, bottom=106.14)
-            logo_img_path = Path(tempfile.gettempdir()) / f"temp_{output_path.stem}_logo_{page_index}.png"
-            pix_logo = page_fitz.get_pixmap(clip=fitz.Rect(45.0, 61.0, 95.0, 98.0), matrix=fitz.Matrix(3.0, 3.0))
-            pix_logo.save(str(logo_img_path))
-            temp_images.append(logo_img_path)
+            # Load shared logo image instead of cropping from PDF
+            logo_img_path = get_resource_path("beehe.png")
+            if not logo_img_path.exists():
+                logo_img_path = Path("beehe.png")
             
             # Write layout blocks
             customer_info = table.get("customer_info", {"customer": "", "contact": "", "phone": "", "date": "", "project": ""})
@@ -860,8 +865,14 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             
             # Insert logo image in A{row_cursor} (spans A1:B3)
             img_logo = Image(str(logo_img_path))
-            img_logo.width = int(50 * 96 / 72)
-            img_logo.height = int(50 * 96 / 72)
+            # Scale to height of 66 pixels while preserving aspect ratio
+            target_h = 66
+            if img_logo.height and img_logo.height > 0:
+                scale = target_h / img_logo.height
+                img_logo.width = int(img_logo.width * scale)
+            else:
+                img_logo.width = 70
+            img_logo.height = target_h
             
             from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
             from openpyxl.drawing.xdr import XDRPositiveSize2D
