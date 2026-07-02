@@ -81,6 +81,60 @@ def style_merged_range_borders(ws, cell_range: str, border_side: Side):
             bottom = border_side if r == max_row else None
             cell.border = Border(left=left, right=right, top=top, bottom=bottom)
 
+def copy_sheet_to_workbook(src_ws, target_wb, target_name):
+    # If a sheet with the same name already exists in target_wb, remove it first
+    if target_name in target_wb.sheetnames:
+        target_wb.remove(target_wb[target_name])
+        
+    dest_ws = target_wb.create_sheet(title=target_name)
+    
+    # Copy values, formulas and formatting cell-by-cell
+    for r in range(1, src_ws.max_row + 1):
+        # Copy row height
+        if r in src_ws.row_dimensions:
+            dest_ws.row_dimensions[r].height = src_ws.row_dimensions[r].height
+            
+        for c in range(1, src_ws.max_column + 1):
+            src_cell = src_ws.cell(r, c)
+            dest_cell = dest_ws.cell(r, c)
+            
+            dest_cell.value = src_cell.value
+            
+            # Copy styling
+            if src_cell.has_style:
+                import copy
+                dest_cell.font = copy.copy(src_cell.font) if src_cell.font else None
+                dest_cell.fill = copy.copy(src_cell.fill) if src_cell.fill else None
+                dest_cell.border = copy.copy(src_cell.border) if src_cell.border else None
+                dest_cell.alignment = copy.copy(src_cell.alignment) if src_cell.alignment else None
+                dest_cell.number_format = src_cell.number_format
+                
+    # Copy merged ranges
+    for merged_range in src_ws.merged_cells.ranges:
+        dest_ws.merge_cells(str(merged_range))
+        
+    # Copy column widths
+    for col_idx in range(1, src_ws.max_column + 1):
+        col_letter = get_column_letter(col_idx)
+        if col_letter in src_ws.column_dimensions:
+            dest_ws.column_dimensions[col_letter].width = src_ws.column_dimensions[col_letter].width
+            
+    # Copy logo images
+    import copy
+    for img in src_ws._images:
+        try:
+            new_img = copy.copy(img)
+            new_img.anchor = img.anchor
+            if img.width and img.height:
+                new_img.width = img.width
+                new_img.height = img.height
+            dest_ws.add_image(new_img)
+        except Exception as e:
+            log(f"Error copying image: {e}")
+            
+    # Copy freeze panes
+    dest_ws.freeze_panes = src_ws.freeze_panes
+
 def apply_outer_borders(ws, start_row, end_row, start_col, end_col, divider_row=None):
     thin_side = Side(style="thin", color="000000")
     for r in range(start_row, end_row + 1):
@@ -701,7 +755,7 @@ def write_text_fallback(wb: Workbook, pdf_path: Path, target_pages: set[int] | N
     ws.freeze_panes = "A2"
 
 
-def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | None = None) -> None:
+def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | None = None, project_name: str | None = None) -> None:
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
@@ -717,12 +771,16 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
     tables, pages = extract_document(pdf_path, target_pages)
     wb = Workbook()
     ws = wb.active
-    ws.title = "Tables"
+    if project_name:
+        sanitized_name = re.sub(r'[\\/*?:\[\]]', '_', project_name)[:31]
+        ws.title = sanitized_name
+    else:
+        ws.title = "Tables"
 
     if is_beehe and fitz is not None:
         log("Applying custom Beehe layout with native styled cells and Logo crop.")
         pdf_doc = fitz.open(pdf_path)
-        row_cursor = 1
+        row_cursor = 2 if project_name else 1
         temp_images: list[Path] = []
         
         for table in tables:
@@ -1024,7 +1082,7 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
                 
             max_len = 0
             for table in tables:
-                t_start = table.get("table_start_row", 9)
+                t_start = table.get("table_start_row", 10 if project_name else 9)
                 t_end = t_start + len(table["rows"])
                 if col_idx >= calc_start_col:
                     r_start = t_start - 8
@@ -1051,18 +1109,46 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
         ws.freeze_panes = None
         
     else:
-        row_cursor = 1
+        row_cursor = 2 if project_name else 1
         for table in tables:
             row_cursor = write_table(ws, row_cursor, table["title"], table["rows"])
         if not tables:
             ws.append(["No table-like quotation data detected. See Text sheet."])
         autosize(ws)
-        ws.freeze_panes = "A2"
+        ws.freeze_panes = "A3" if project_name else "A2"
+
+    if project_name:
+        ws.cell(1, 1).value = project_name
+        ws.cell(1, 1).font = Font(name="Calibri", size=24, bold=True)
+        ws.cell(1, 1).alignment = Alignment(vertical="center", horizontal="center")
+        ws.row_dimensions[1].height = 35
+        
+        # Merge A1 across max_cols_all
+        max_cols_all = max((len(t["rows"][0]) for t in tables), default=8)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_cols_all)
 
     write_text_fallback(wb, pdf_path, target_pages)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
+
+    if project_name:
+        master_path = output_path.parent / "專案匯總管理表.xlsx"
+        try:
+            from openpyxl import load_workbook
+            if master_path.exists():
+                wb_master = load_workbook(master_path)
+            else:
+                wb_master = Workbook()
+                if "Sheet" in wb_master.sheetnames:
+                    wb_master.remove(wb_master["Sheet"])
+            
+            sanitized_name = re.sub(r'[\\/*?:\[\]]', '_', project_name)[:31]
+            copy_sheet_to_workbook(ws, wb_master, sanitized_name)
+            wb_master.save(master_path)
+            wb_master.close()
+        except Exception as e:
+            log(f"Error copying sheet to master workbook: {e}")
 
     # Clean up temp images
     if is_beehe:
@@ -1083,9 +1169,9 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
     print(json.dumps(payload, ensure_ascii=False))
 
 
-def convert(pdf_path: Path, output_path: Path, target_pages: set[int] | None = None) -> None:
+def convert(pdf_path: Path, output_path: Path, target_pages: set[int] | None = None, project_name: str | None = None) -> None:
     try:
-        convert_impl(pdf_path, output_path, target_pages)
+        convert_impl(pdf_path, output_path, target_pages, project_name)
     except Exception as error:
         payload = {
             "input": str(pdf_path),
@@ -1202,10 +1288,11 @@ def run_daemon(port: int) -> None:
                 output_path = Path(cmd["output_path"])
                 pages = cmd.get("pages")
                 target_pages = set(pages) if pages else None
+                project_name = cmd.get("project_name")
                 
                 f = io.StringIO()
                 with contextlib.redirect_stdout(f):
-                    convert(pdf_path, output_path, target_pages)
+                    convert(pdf_path, output_path, target_pages, project_name)
                 response = f.getvalue().strip()
                 if not response:
                     response = json.dumps({"status": "error", "message": "Empty response from converter"})
@@ -1221,6 +1308,20 @@ def run_daemon(port: int) -> None:
                 if not response:
                     response = json.dumps({"status": "error", "message": "Empty response from thumbnail extractor"})
                 conn.sendall(response.encode("utf-8") + b"\n")
+                
+            elif action == "get_master_sheets":
+                output_dir = Path(cmd["output_dir"])
+                master_path = output_dir / "專案匯總管理表.xlsx"
+                sheets = []
+                if master_path.exists():
+                    try:
+                        from openpyxl import load_workbook
+                        wb_master = load_workbook(master_path, read_only=True, keep_links=False)
+                        sheets = wb_master.sheetnames
+                        wb_master.close()
+                    except Exception as e:
+                        log(f"Error reading master workbook sheets: {e}")
+                conn.sendall(json.dumps({"status": "success", "sheets": sheets}).encode("utf-8") + b"\n")
                 
             else:
                 conn.sendall(json.dumps({"status": "error", "message": f"Unknown action: {action}"}).encode("utf-8") + b"\n")
@@ -1247,7 +1348,7 @@ def main() -> int:
             return 1
 
     if len(sys.argv) < 3:
-        print("Usage: convert_pdf.py <input.pdf> <output.xlsx | --thumbnails-only> [--pages 1,2,3]", file=sys.stderr)
+        print("Usage: convert_pdf.py <input.pdf> <output.xlsx | --thumbnails-only> [--pages 1,2,3] [--project-name 'Name']", file=sys.stderr)
         return 2
     try:
         input_path = Path(sys.argv[1])
@@ -1263,10 +1364,19 @@ def main() -> int:
                 print(f"Error parsing --pages: {e}", file=sys.stderr)
                 return 2
 
+        project_name = None
+        if "--project-name" in sys.argv:
+            try:
+                project_name_idx = sys.argv.index("--project-name")
+                project_name = sys.argv[project_name_idx + 1]
+            except Exception as e:
+                print(f"Error parsing --project-name: {e}", file=sys.stderr)
+                return 2
+
         if output_arg == "--thumbnails-only":
             get_thumbnails(input_path)
         else:
-            convert(input_path, Path(output_arg), target_pages)
+            convert(input_path, Path(output_arg), target_pages, project_name)
     except Exception as error:
         print(str(error), file=sys.stderr)
         return 1

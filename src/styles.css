@@ -193,7 +193,7 @@ h1 {
 .grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .card,

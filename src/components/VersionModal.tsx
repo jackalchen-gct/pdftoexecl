@@ -19,7 +19,21 @@ export default function VersionModal({ isOpen, onClose }: VersionModalProps) {
 
         <div style={{ padding: "8px 0", maxHeight: "400px", overflowY: "auto" }}>
           <div style={{ marginBottom: "20px" }}>
-            <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#1d3b2a" }}>v0.5.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-07-01)</span></h3>
+            <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#1d3b2a" }}>v0.6.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-07-02)</span></h3>
+            <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
+              <li><strong>專案匯總管理與自訂名稱功能</strong>
+                <ul>
+                  <li><strong>專案名稱自訂與對齊</strong>：UI 新增「專案名稱」輸入框。設定後會將產出 Excel 的工作表（Sheet）重新命名為專案名稱，並在 Excel 第一列（Row 1）插入 24 級 Calibri 粗體合併大標題，其餘表格自動下移 1 行，維持完美對齊。</li>
+                  <li><strong>匯總管理表自動整合</strong>：每次轉檔時，除了產出獨立 Excel，還會自動將該專案工作表複製合併至 <code>專案匯總管理表.xlsx</code> 中，以便集中檢視與管理所有專案。</li>
+                  <li><strong>重複名稱阻擋與保護</strong>：程式啟動或變更目錄時，會自動掃描 <code>專案匯總管理表.xlsx</code> 中的所有工作表。當輸入重複名稱時，UI 會即時警示並禁用轉換按鈕，防止覆蓋歷史資料。</li>
+                  <li><strong>修正 UI 版本號顯示</strong>：修復先前主介面上版本顯示徽章未同步更新的問題，現已統一顯示為對應的 v0.6.0。</li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+
+          <div style={{ marginBottom: "20px" }}>
+            <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", color: "#6d6254" }}>v0.5.0 <span style={{ fontSize: "0.85rem", color: "#6d6254", fontWeight: "normal" }}> (2026-07-01)</span></h3>
             <ul style={{ paddingLeft: "20px", margin: 0, lineHeight: "1.6" }}>
               <li><strong>比赫 PDF 報價單「版型二」排版與外框線優化</strong>
                 <ul>

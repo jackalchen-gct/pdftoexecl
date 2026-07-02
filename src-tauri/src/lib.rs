@@ -187,6 +187,7 @@ async fn convert_pdfs(
     pdf_paths: Vec<String>,
     output_dir: String,
     page_selections: std::collections::HashMap<String, Vec<usize>>,
+    project_name: Option<String>,
 ) -> Result<Vec<ConvertResult>, String> {
     let output_dir_path = Path::new(&output_dir);
     let mut results = Vec::new();
@@ -213,6 +214,7 @@ async fn convert_pdfs(
             "pdf_path": input.clone(),
             "output_path": output_path.to_string_lossy().to_string(),
             "pages": pages,
+            "project_name": project_name,
         });
 
         let cmd_str = serde_json::to_string(&cmd).map_err(|e| e.to_string())? + "\n";
@@ -320,6 +322,36 @@ async fn get_pdf_previews(
     Ok(results)
 }
 
+#[tauri::command]
+async fn get_master_sheets(
+    state: tauri::State<'_, DaemonState>,
+    output_dir: String,
+) -> Result<Vec<String>, String> {
+    use std::io::{Write, Read};
+    let mut stream = std::net::TcpStream::connect(format!("127.0.0.1:{}", state.port))
+        .map_err(|e| format!("Failed to connect to daemon: {}", e))?;
+
+    let cmd = serde_json::json!({
+        "action": "get_master_sheets",
+        "output_dir": output_dir,
+    });
+
+    let cmd_str = serde_json::to_string(&cmd).map_err(|e| e.to_string())? + "\n";
+    stream.write_all(cmd_str.as_bytes()).map_err(|e| e.to_string())?;
+    stream.flush().map_err(|e| e.to_string())?;
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response).map_err(|e| e.to_string())?;
+
+    let payload: serde_json::Value = serde_json::from_str(&response).map_err(|e| e.to_string())?;
+    if let Some(sheets) = payload.get("sheets").and_then(|s| s.as_array()) {
+        let sheet_names: Vec<String> = sheets.iter().filter_map(|s| s.as_str().map(|str| str.to_string())).collect();
+        Ok(sheet_names)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -361,7 +393,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![convert_pdfs, get_pdf_previews])
+        .invoke_handler(tauri::generate_handler![convert_pdfs, get_pdf_previews, get_master_sheets])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -53,6 +53,8 @@ type PreviewTarget = {
 export default function App() {
   const [pdfs, setPdfs] = useState<string[]>([]);
   const [outputDir, setOutputDir] = useState<string>("");
+  const [projectName, setProjectName] = useState<string>("");
+  const [existingSheets, setExistingSheets] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<ConvertResult[]>([]);
   const [pdfPreviews, setPdfPreviews] = useState<ConvertResult[]>([]);
@@ -209,6 +211,23 @@ export default function App() {
     });
   };
 
+  const checkExistingSheets = useCallback(async (dir: string) => {
+    if (!dir) {
+      setExistingSheets([]);
+      return;
+    }
+    try {
+      const sheets = await invoke<string[]>("get_master_sheets", { outputDir: dir });
+      setExistingSheets(sheets);
+    } catch (e) {
+      console.error("Failed to fetch master sheets:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkExistingSheets(outputDir);
+  }, [outputDir, checkExistingSheets]);
+
   async function chooseOutputDir() {
     const selected = await open({ directory: true, multiple: false });
     if (typeof selected === "string") {
@@ -226,9 +245,11 @@ export default function App() {
         pdfPaths: pdfs,
         outputDir,
         pageSelections: selectedPages,
+        projectName: projectName.trim() || null,
       });
       setResults(converted);
       setPreview(null);
+      await checkExistingSheets(outputDir);
     } catch (e) {
       console.error("Conversion failed:", e);
       setGlobalError(`轉換失敗：${e instanceof Error ? e.message : String(e)}`);
@@ -252,7 +273,7 @@ export default function App() {
           style={{ fontSize: "0.85rem", padding: "4px 10px", cursor: "pointer", userSelect: "none" }}
           onClick={() => setShowVersionInfo(true)}
         >
-          v0.4.0
+          v0.6.0
         </span>
       </header>
 
@@ -352,6 +373,50 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* 專案名稱 Card */}
+          <div className="card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <h2 style={{ margin: 0 }}>專案名稱</h2>
+              {projectName.trim() && (
+                <span 
+                  style={{ fontSize: "0.82rem", color: "#6d6254", cursor: "pointer", fontWeight: "bold" }}
+                  onClick={() => setProjectName("")}
+                >
+                  清除 ❌
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", justifyContent: "center", minHeight: "110px", padding: "8px 12px" }}>
+              <input
+                type="text"
+                placeholder="輸入專案名稱以命名 Excel 及 Sheet..."
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "12px 14px",
+                  fontSize: "0.95rem",
+                  borderRadius: "14px",
+                  border: projectName.trim() && existingSheets.includes(projectName.trim()) ? "2px solid #ab3625" : "1px solid rgba(47, 42, 31, 0.2)",
+                  background: "rgba(255, 255, 255, 0.95)",
+                  color: "#1d3b2a",
+                  outline: "none",
+                  fontWeight: 600,
+                  boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
+                }}
+              />
+              {projectName.trim() && existingSheets.includes(projectName.trim()) ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "#ab3625", fontSize: "0.82rem", fontWeight: "bold" }}>
+                  <span>⚠️ 此專案名稱已存在於匯總管理表！</span>
+                </div>
+              ) : (
+                <div style={{ color: "#6d6254", fontSize: "0.82rem", opacity: 0.8 }}>
+                  {projectName.trim() ? "✨ 專案名稱可用" : "💡 設定後將於 Row 1 新增專案標題"}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* 轉成 Excel 開始轉換按鈕 */}
@@ -362,14 +427,14 @@ export default function App() {
               e.stopPropagation();
               convert();
             }} 
-            disabled={busy || !pdfs.length || !outputDir}
+            disabled={busy || !pdfs.length || !outputDir || (projectName.trim() !== "" && existingSheets.includes(projectName.trim()))}
             style={{ 
               width: "100%", 
               maxWidth: "480px", 
               padding: "1rem 2rem", 
               fontSize: "1.1rem",
               borderRadius: "999px",
-              boxShadow: !pdfs.length || !outputDir ? "none" : "0 8px 26px rgba(44, 114, 75, 0.22)"
+              boxShadow: !pdfs.length || !outputDir || (projectName.trim() !== "" && existingSheets.includes(projectName.trim())) ? "none" : "0 8px 26px rgba(44, 114, 75, 0.22)"
             }}
           >
             {busy ? (
