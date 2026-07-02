@@ -51,6 +51,18 @@ def parse_price(val: str) -> float:
         return 0.0
 
 
+def find_latest_master_path(output_dir: Path) -> Path | None:
+    if not output_dir.exists():
+        return None
+    import glob
+    pattern = str(output_dir / "專案匯總管理表*.xlsx")
+    files = glob.glob(pattern)
+    if not files:
+        return None
+    files.sort()
+    return Path(files[-1])
+
+
 def get_display_length(s: str) -> int:
     if not s:
         return 0
@@ -1140,11 +1152,12 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
     wb.save(output_path)
 
     if project_name:
-        master_path = output_path.parent / "專案匯總管理表.xlsx"
+        output_dir = output_path.parent
+        latest_master = find_latest_master_path(output_dir)
         try:
             from openpyxl import load_workbook
-            if master_path.exists():
-                wb_master = load_workbook(master_path)
+            if latest_master and latest_master.exists():
+                wb_master = load_workbook(latest_master)
             else:
                 wb_master = Workbook()
                 if "Sheet" in wb_master.sheetnames:
@@ -1152,7 +1165,13 @@ def convert_impl(pdf_path: Path, output_path: Path, target_pages: set[int] | Non
             
             sanitized_name = re.sub(r'[\\/*?:\[\]]', '_', project_name)[:31]
             copy_sheet_to_workbook(ws, wb_master, sanitized_name)
-            wb_master.save(master_path)
+            
+            # Save to a new filename with timestamp
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            new_master_path = output_dir / f"專案匯總管理表_{timestamp}.xlsx"
+            
+            wb_master.save(new_master_path)
             wb_master.close()
         except Exception as e:
             log(f"Error copying sheet to master workbook: {e}")
@@ -1318,12 +1337,12 @@ def run_daemon(port: int) -> None:
                 
             elif action == "get_master_sheets":
                 output_dir = Path(cmd["output_dir"])
-                master_path = output_dir / "專案匯總管理表.xlsx"
+                latest_master = find_latest_master_path(output_dir)
                 sheets = []
-                if master_path.exists():
+                if latest_master and latest_master.exists():
                     try:
                         from openpyxl import load_workbook
-                        wb_master = load_workbook(master_path, read_only=True, keep_links=False)
+                        wb_master = load_workbook(latest_master, read_only=True, keep_links=False)
                         sheets = wb_master.sheetnames
                         wb_master.close()
                     except Exception as e:

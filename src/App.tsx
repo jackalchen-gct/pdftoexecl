@@ -102,6 +102,14 @@ export default function App() {
     setSelectedPages({});
     setGlobalError(null);
 
+    // Auto-fill project name from first PDF filename if currently empty
+    if (paths.length > 0 && projectName.trim() === "") {
+      const fullPath = paths[0];
+      const fileName = fullPath.split(/[\\/]/).pop() || "";
+      const defaultName = getDefaultProjectName(fileName);
+      setProjectName(defaultName);
+    }
+
     setLoadingPreviews(true);
     try {
       const previews = await invoke<ConvertResult[]>("get_pdf_previews", {
@@ -741,4 +749,23 @@ export default function App() {
       </section>
     </main>
   );
+}
+
+function getDefaultProjectName(fileName: string): string {
+  // Remove extension .pdf (case insensitive)
+  let name = fileName.replace(/\.pdf$/i, "");
+  
+  // Remove common date formats:
+  // 1. YYYYMMDD (e.g., 20260317)
+  name = name.replace(/\b\d{8}\b/g, "");
+  // 2. YYYY-MM-DD or YYYY/MM/DD
+  name = name.replace(/\b\d{4}[-/]\d{2}[-/]\d{2}\b/g, "");
+  // 3. YYYY年MM月DD日
+  name = name.replace(/\b\d{4}年\d{1,2}月\d{1,2}日\b/g, "");
+  
+  // Clean up: collapse multiple spaces, strip trailing/leading spaces and trailing dashes/underscores
+  name = name.replace(/\s*[-_]+\s*$/, "")
+             .replace(/\s+/g, " ")
+             .trim();
+  return name;
 }
